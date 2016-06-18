@@ -4,7 +4,118 @@ Evan Goris
 2015
 """
 
-class TachoMotor(object):
+class Device(object):
+    """Base class for motors and sensors
+
+    Contains some functionality common to all devices
+
+    Args:
+        port (str or int): Name of an EV3 IO port
+    """
+
+    _basefolder = None
+        # Needs to be overriden in derived classes to point
+        # to the folder that contains connected devices of
+        # the type that the derived class represents
+        #
+
+    def __init__(self, port):
+
+        if self.__class__._basefolder == None:
+            raise RuntimeError
+
+        nport = self._normalizeport(port)
+        self._devicefolder = self._finddevice(nport)
+
+    def _normalizeport(self, port):
+        """Normalize a port name
+
+        Args:
+            port (str or int): Port name
+
+        Returns:
+            str: Name of `port` in the form 'outX' or 'inD'
+
+        Raises:
+            RuntimeError: If `port` is not recognized as a name
+                          of a port
+        """
+        port = str(port)
+
+        if port in ['A', 'B', 'C', 'D']:
+            port = 'out' + port
+
+        if str(port) in ['1', '2', '3', '4']:
+            port = 'in' + port
+
+        if not port[:2]=='in' and not port[:3]=='out':
+            raise RuntimeError
+
+        return port
+
+    def _finddevice(self, port):
+        """Search for a device connected to a given port
+
+        Args:
+            port (str): Port in normalized form. See _normalizeport()
+
+        Returns:
+            str: Path to the device
+
+        Raises:
+            IOError: When no device can be found
+        """
+        import os
+        for device in os.listdir(self.__class__._basefolder):
+            device = os.path.join(self.__class__._basefolder, device)
+
+            with open(os.path.join(device, 'address'), 'r') as handle:
+                portname = handle.read()
+                portname = portname[0:-1]
+                if portname == port:
+                    return device
+
+        raise IOError("No device on port %(p)s found"%{'p': port})
+
+    def __str__(self):
+        return self._devicefolder
+
+    def _write_file(self, file, value):
+        """Write a value to a file in the device folder
+        """
+        import os
+        cmdpath = os.path.join(self._devicefolder, file)
+        with open(cmdpath, 'w') as cmd:
+            cmd.write(value)
+
+    def _read_file(self, file):
+        """Read a value from a file in the device folder
+        """
+        import os
+        cmdpath = os.path.join(self._devicefolder, file)
+        with open(cmdpath, 'r') as cmd:
+            return cmd.read()[0:-1]
+
+    def _get_address(self):
+        """Name of the port this motor is connected to
+        """
+        return self._read_file('address')
+
+    Address = property(_get_address)
+
+    def _get_driver_name(self):
+        """Returns the name of the driver that provides this tacho motor device
+        """
+        return self._read_file('driver_name')
+
+    Driver_Name = property(_get_driver_name)
+
+    def _get_devicefolder(self):
+        return self._devicefolder
+
+    DeviceFolder = property(_get_devicefolder)
+
+class TachoMotor(Device):
     """Represents a motor connected to a port
     
     Responsibilities:
@@ -22,48 +133,16 @@ class TachoMotor(object):
     _basefolder = "/sys/class/tacho-motor"
 
     def __init__(self, port):
-                
+        super(TachoMotor, self).__init__(port)
+
         # Folder with all files for controling and reading the motor
         #
-        self._motorfolder   = self._findmotor(port)
+        self._motorfolder   = self._devicefolder
         
         # File handles to file to set speed etc. Is initialized in __enter__()
         #
         self._duty_cycle_sp = None
-        
-    def _findmotor(self,port):
-        """Look for a motor connected to `port`.
-        
-        Args:
-            port (str): Port on which to look for a motor, either 'A', 'B', 'C', or 'D'.
 
-        Raises:
-            IOError: When no motor on `port` can be found.
-        """
-        import os
-        if not port[:3]=="out":
-            port = "out" + port
-        
-        # Run through all connected motors and see whether they
-        # are connected to `port`
-        #
-        for motor in os.listdir(TachoMotor._basefolder):
-            motor = os.path.join(TachoMotor._basefolder,motor)
-         
-            # Read the port_name atrribute and see if its equal
-            # to `port`
-            #
-            with open(os.path.join(motor,'address'),'r') as handle:
-                portname = handle.read()
-                portname = portname[0:-1]
-                if portname == port:
-                    return motor
-                    
-        raise IOError("No motor on port %(p)s found"%{'p':port})
-    
-    def __str__(self):
-        return self._motorfolder
-    
     def __enter__(self):
         """
         Open 'duty_cycle_sp' in read/write mode
@@ -83,12 +162,9 @@ class TachoMotor(object):
             self._duty_cycle_sp.close()
             self._duty_cycle_sp = None
             
-    def _get_address(self):
-        """Name of the port this motor is connected to
-        """
-        return self._read_file('address')
 
-    Address = property(_get_address)
+    def getreadproperties(self):
+        return ['Position', 'Duty_Cycle', 'Speed']
 
     def _get_command(self):
         raise RuntimeError("Command is a write only property")
@@ -124,12 +200,6 @@ class TachoMotor(object):
 
     Count_Per_Rot = property(_get_count_per_rot)
 
-    def _get_driver_name(self):
-        """Returns the name of the driver that provides this tacho motor device
-        """
-        return self._read_file('driver_name')
-
-    Driver_Name = property(_get_driver_name)
 
     def _get_duty_cycle(self):
         """Returns the current duty cycle of the motor
@@ -288,32 +358,12 @@ class TachoMotor(object):
 
     Speed_Regulation_Enabled = property(_get_speed_regulation_enabled, _set_speed_regulation_enabled)
 
-
-    def get_motorfolder(self):
-        return self._motorfolder
-        
-    motorfolder = property(get_motorfolder)
-
-    
     def reset(self):
         import os
-        cmd = os.path.join(self._motorfolder,'command')
-        with open(cmd,'w') as c:
+        cmd = os.path.join(self._motorfolder, 'command')
+        with open(cmd, 'w') as c:
             c.write('reset')
-        
 
-    
-
-    
-
-    
-
-
-    
-
-    
-
-    
     def stop(self):
         self.Command = 'stop'
     
@@ -323,7 +373,7 @@ class TachoMotor(object):
         Args:
             command (str): Either 'coast', 'break', or 'hold'
         """
-        self._write_file('stop_command',command)
+        self._write_file('stop_command', command)
         
     def get_stop(self):
         return self._read_file('stop_command')
@@ -339,19 +389,6 @@ class TachoMotor(object):
     
     def runtoabspos(self):
         self.Command = 'run-to-abs-pos'
-        
-    def _write_file(self,file,value):
-        import os
-        cmdpath = os.path.join(self._motorfolder, file)
-        with open(cmdpath,'w') as cmd:
-            cmd.write(value)
-    
-    def _read_file(self,file):
-        import os
-        cmdpath = os.path.join(self._motorfolder,file)
-        with open(cmdpath,'r') as cmd:
-            return cmd.read()[0:-1]
-        
 
     def stop(self):
         self.Command = 'stop'
@@ -363,13 +400,14 @@ class TachoMotor(object):
         self.Command = 'run-direct'
 
 
-class Infrared_Sensor(object):
+class Infrared_Sensor(Device):
 
     _basefolder = "/sys/class/lego-sensor"
     _maxvalues  = 8
 
     def __init__(self, port):
-        self._sensorfolder = self._findsensor(str(port))
+        super(Infrared_Sensor, self).__init__(port)
+        self._sensorfolder = self._devicefolder
         self._valuefps     = [ None for i in range(Infrared_Sensor._maxvalues) ]
 
     def __enter__(self):
@@ -383,47 +421,9 @@ class Infrared_Sensor(object):
                 fp.close()
         self._valuefps = [ None for i in range(Infrared_Sensor._maxvalues) ]
 
-    def _findsensor(self, port):
-        """Look for a sensor connected to `port`.
 
-        Args:
-            port (int): Port on which to look for a sensor, either 1, 2, 3, or 4.
-
-        Raises:
-            IOError: When no sensor on `port` can be found.
-        """
-        import os
-        if not port[:2]=="in":
-            port = "in" + port
-
-        # Run through all connected motors and see whether they
-        # are connected to `port`
-        #
-        for sensor in os.listdir(Infrared_Sensor._basefolder):
-            sensor = os.path.join(Infrared_Sensor._basefolder, sensor)
-
-            # Read the port_name atrribute and see if its equal
-            # to `port`
-            #
-            with open(os.path.join(sensor, 'address'), 'r') as handle:
-                portname = handle.read()
-                portname = portname[0:-1]
-                if portname == port:
-                    return sensor
-
-        raise IOError("No sensor on port %(p)s found"%{'p':port})
-
-    def _write_file(self,file,value):
-        import os
-        cmdpath = os.path.join(self._sensorfolder, file)
-        with open(cmdpath, 'w') as cmd:
-            cmd.write(value)
-
-    def _read_file(self,file):
-        import os
-        cmdpath = os.path.join(self._sensorfolder, file)
-        with open(cmdpath, 'r') as cmd:
-            return cmd.read()[0:-1]
+    def getreadproperties(self):
+        return ['Proximity', 'SeekHeading', 'SeekDistance']
 
     def _get_value(self, i):
         if self._valuefps[i]:
@@ -442,11 +442,6 @@ class Infrared_Sensor(object):
 
     def SeekDistance(self, channel):
         return self._get_value((channel-1)*2 +1)
-
-    def _get_address(self):
-        return self._read_file('address')
-
-    Address = property(_get_address)
 
     def _get_modes(self):
         modes = self._read_file('modes')
@@ -467,10 +462,6 @@ class Infrared_Sensor(object):
 
     Num_Values = property(_get_num_values)
 
-    def _get_driver_name(self):
-        return self._read_file('driver_name')
-
-    Driver_Name = property(_get_driver_name)
 
 if __name__=='__main__':
     import time

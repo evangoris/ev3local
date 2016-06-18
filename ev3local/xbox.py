@@ -149,3 +149,86 @@ class XCEvents(object):
             else:
                 for event in self._xbox.read():
                     yield event
+
+
+class XBoxStateController(object):
+    """Record the state of an absolute axis of an XBox controller
+
+    Event handler for xbox.XCEvents() that records the value of
+    an absolute axis.
+
+    Args:
+        xcevents (xbox.XCEvents): Event sequence
+        event (string or int): Name or code of an absolute axis
+    """
+    def __init__(self, xcevents, event='ABS_RX'):
+        if type(event)==str:
+            import evdev.ecodes
+            self._eventcode = evdev.ecodes.ecodes[event]
+        else:
+            self._eventcode = event
+
+        self._typecode = evdev.ecodes.ecodes['EV_ABS']
+
+        self._value = 0.0
+
+        absinfo = xcevents.absinfo(self._eventcode)
+        self._min = float(absinfo.min)
+        self._max = float(absinfo.max)
+
+        xcevents.add_callback(self._callback)
+        self._device = xcevents._xbox
+
+    def __get_min(self):
+        return self._min
+
+    min = property(__get_min)
+    """Minimal value the observed axis can take on
+    """
+
+    def __get_max(self):
+        return self._max
+
+    max = property(__get_max)
+    """Maximal value the observed axis can take on
+    """
+
+    def __get_value(self):
+        return self._value
+
+    value = property(__get_value)
+    """Current value of the observed axis
+    """
+
+    def __get_pvalue(self):
+        if self._value>0:
+            return self._value / self._max
+        else:
+            return -(self._value / self._min)
+
+    pvalue = property(__get_pvalue)
+    """Current value of the observed axis normalized to [-1,1]
+    """
+
+    def _get_driver_name(self):
+        return self._device.name
+
+    Driver_Name = property(_get_driver_name)
+
+    def _callback(self, event):
+        """Callback for XCEvents()
+
+        Args:
+            event (InputEvent): Event from a controller
+
+        Returns:
+            boolean: True if the event was handled. False otherwise
+        """
+        if event.type!=self._typecode or event.code!=self._eventcode:
+            return False
+
+        self._value = float(event.value)
+        return True
+
+    def getreadproperties(self):
+        return ['pvalue']

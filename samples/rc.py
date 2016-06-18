@@ -1,3 +1,5 @@
+import ev3local.pid
+
 
 def main():
     run()
@@ -12,7 +14,7 @@ def run(steerport='D', driveport='A', maxcontrol=100.0, fadezone=30.0, loopfreq=
         fadezone (float): Steering motor will slow down within setpoint +- fadezone
         loopfreq (float): Times per second the steering motor is updated
     """
-    import ev3control.xbox as xbox, ev3control.ev3 as ev3, ev3control.controllers as controllers
+    import ev3local.xbox as xbox, ev3local.ev3 as ev3, ev3local.callback as controllers
     import time
 
     with xbox.XCEvents() as xcevents, ev3.TachoMotor(steerport) as motor, ev3.TachoMotor(driveport) as drivemotor:
@@ -23,9 +25,9 @@ def run(steerport='D', driveport='A', maxcontrol=100.0, fadezone=30.0, loopfreq=
         motor.run_direct()
 
         kp = maxcontrol / fadezone
-        with controllers.PController(
-                kp, controllers.axissetpoint(xcevents),
-                controllers.processvariable(motor), controllers.clampedcontrol(motor, maxcontrol)) as controller:
+        with ev3local.pid.PController(
+                kp, ev3local.pid.axissetpoint(xcevents),
+                ev3local.pid.processvariable(motor), ev3local.pid.clampedcontrol(motor, maxcontrol)) as controller:
             try:
                 while True:
                     time.sleep(1.0/loopfreq)
