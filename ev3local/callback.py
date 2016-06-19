@@ -1,9 +1,5 @@
-"""Event handlers for operating motors
+"""Callbacks for operating motors that can be added to xbox.XCEvents instances
 
-Dependencies:
-    ev3
-    xbox
-    
 Evan Goris
 2015
 """

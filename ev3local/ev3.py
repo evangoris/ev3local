@@ -463,35 +463,6 @@ class Infrared_Sensor(Device):
     Num_Values = property(_get_num_values)
 
 
-if __name__=='__main__':
-    import time
-    
-    try:
-        motor = TachoMotor('A')
-        print motor._motorfolder    
-        print motor.position
-        print motor.duty_cycle_sp
-        
-        motor.reset()
-        
-        motor.duty_cycle_sp = 100
-        motor.run_forever()
-        for i in range(0,4):
-            time.sleep(0.5)
-            print motor.speed
 
-        motor.stop()
-        motor.duty_cycle_sp = -50
-        motor.run_forever()
-        for i in range(0,4):
-            time.sleep(0.5)
-            print motor.speed
-        motor.stop()
-        
-        motor.reset()
-
-
-    finally:    
-        motor.stop()
     
     
