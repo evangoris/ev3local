@@ -115,6 +115,96 @@ class Device(object):
 
     DeviceFolder = property(_get_devicefolder)
 
+def mapport(portname):
+    """Map a port name to a class object suitable for handling the device
+    connected to that port
+
+    Args:
+        portname (str): Name of the port, either 'outX' or 'inN'
+
+    Returns:
+        __class__: Class suitable for the devices connected to `portname`
+
+    Raises:
+        RunTimeError: When no device is connected on `portname`
+        RunTimeError: When device connected on `portname` is inknown
+    """
+    map = dict(lsdevices())
+    try:
+        drivername = map[portname]
+        return mapdriver(drivername)
+    except KeyError:
+        raise RuntimeError("No device attached to %(port)s"%{'port': portname})
+
+def mapdriver(drivername):
+    """Map a driver name to a class object suitable for that driver
+
+    Args:
+        drivername (str): Name of the driver as read from '/sys/class/TYPE/DEVICE/driver_name'
+
+    Resturns:
+        __class__: Class that can handle associated device
+
+    Raises:
+        RunTimeError: When `drivername` is unknown
+    """
+    map = {
+        'lego-ev3-m-motor': TachoMotor,
+        'lego-ev3-l-motor': TachoMotor,
+        'lego-ev3-ir': Infrared_Sensor
+    }
+    try:
+        return map[drivername]
+    except KeyError:
+        raise RuntimeError("Unkown device %(name)s"%{'name': drivername})
+
+def _lsdevices(basefolder):
+    """Return info on all devices of a specific category currently attached to the brick
+
+    Args:
+        basefolder (str): Subfolder of '/sys/class' that contains all the devices
+            of a specific category
+
+    Returns:
+        list of tuple: A list of tuples (PORT, DRIVERNAME)
+    """
+    devices = []
+    import os, os.path
+    if os.path.exists(basefolder):
+        for device in os.listdir(basefolder):
+            with open(os.path.join(basefolder, device, 'address')) as f:
+                port = f.read().strip()
+            with open(os.path.join(basefolder, device, 'driver_name')) as f:
+                driver_name = f.read().strip()
+            devices.append((port, driver_name))
+    return devices
+
+def lsdevices():
+    """Return info on all tacho-motors and all lego-sensors currently
+    connected to the brick
+
+    Returns:
+        list of tuple: A list of tuples (PORT, DRIVERNAME)
+    """
+    return lstachomotors() + lslegosensors()
+
+def lslegosensors():
+    """Return info on all lego sensors currently attached to the brick
+
+    Returns:
+        list of tuple: A list of tuples (PORT, DRIVERNAME)
+    """
+    return _lsdevices("/sys/class/lego-sensor")
+
+def lstachomotors():
+    """Return info on all tacho-motors currently attached to the brick
+
+    Returns:
+        list of tuple: A list of tuples (PORT, DRIVERNAME)
+    """
+    return _lsdevices("/sys/class/tacho-motor")
+
+
 class TachoMotor(Device):
     """Represents a motor connected to a port
     
