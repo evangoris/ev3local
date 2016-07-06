@@ -68,8 +68,8 @@ def main():
             try:
                 request = readrequest(clientsocket)
                 logging.info("Received [" + request + "]")
-                device, property = processrequest(request)
-                sendstream(frequency, timer, clientsocket, device, property)
+                devicefactory, property = processrequest(request)
+                sendstream(frequency, timer, clientsocket, devicefactory, property)
             except RuntimeError as e:
                 print str(e)
     finally:
@@ -91,10 +91,11 @@ def processrequest(request):
     logging.info("Parsed [" + port + "] [" + property + "]")
 
     deviceclass = ev3.mapport(port)
-    device = deviceclass(port)
-    logging.info("Resolved [" + port + "] [" + device.Driver_Name + "]")
+    #logging.info("Resolved [" + port + "] [" + deviceclass.Driver_Name + "]")
+    # TODO: Make Driver_Name a class property
+    #
 
-    return (device, property)
+    return (lambda: deviceclass(port), property)
 
 def readrequest(sckt):
     """Read a complete request from a cocket.
@@ -114,7 +115,7 @@ def readrequest(sckt):
         request = request + chunk
     return request
 
-def sendstream(frequency, timer, sckt, device, property):
+def sendstream(frequency, timer, sckt, devicefactory, property):
     """Send a stream of timestamps and propertyvalues over a socket
 
         The stream is send asynchrone. The stream ends if the client
@@ -127,18 +128,19 @@ def sendstream(frequency, timer, sckt, device, property):
         device (ev3.Device): Device to stream values from
         property (str): Property of `device` the stream the values of
     """
-    f = sendvaluef(sckt, device, property, timer)
-    g = repeatf(f, frequency)
     import threading, socket
     def h():
         tname = threading.current_thread().name
-        logging.info("Start stream [" + tname + "][" + device.Driver_Name + " (" + device.Address + ")] [" + property + "]")
-        try:
-            g()
-        except socket.error as e:
-            logging.info("End stream [" + tname + "][" + device.Driver_Name + "] [" + property + "]")
-        finally:
-            sckt.close()
+        with devicefactory() as device1:
+            try:
+                    logging.info("Start stream [" + tname + "][" + device1.Driver_Name + " (" + device1.Address + ")] [" + property + "]")
+                    f = sendvaluef(sckt, device1, property, timer)
+                    g = repeatf(f, frequency)
+                    g()
+            except socket.error as e:
+                logging.info("End stream [" + tname + "][" + device1.Driver_Name + "] [" + property + "]")
+            finally:
+                sckt.close()
     thread = threading.Thread(target=h)
     thread.start()
 
