@@ -95,7 +95,7 @@ def processrequest(request):
     # TODO: Make Driver_Name a class property
     #
 
-    return (lambda: deviceclass(port), property)
+    return (lambda: deviceclass(port, rcmproperties=[property]), property)
 
 def readrequest(sckt):
     """Read a complete request from a cocket.
