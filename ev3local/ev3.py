@@ -11,6 +11,9 @@ class Device(object):
 
     Args:
         port (str or int): Name of an EV3 IO port
+        rcontext (iter of str): Filename of read-only files that are managed within a 'with' statement
+        wcontext (iter of str): Filename of write-only files that are managed within a 'with' statement
+        rwcontext (iter of str): Filename of read-write files that are managed within a 'with' statement
     """
 
     _basefolder = None
@@ -19,13 +22,25 @@ class Device(object):
         # the type that the derived class represents
         #
 
-    def __init__(self, port):
+    def __init__(self, port, rcontext=None, wcontext=None, rwcontext=None):
 
         if self.__class__._basefolder == None:
             raise RuntimeError
 
         nport = self._normalizeport(port)
         self._devicefolder = self._finddevice(nport)
+
+        self._rcontext  = rcontext or []
+        self._wcontext  = wcontext or []
+        self._rwcontext = rwcontext or []
+        self._rfhandles  = {}
+        self._wfhandles  = {}
+        self._rwfhandles = {}
+
+        self._dblogcounter = 0
+
+    def _getrfilehandle(self, filename):
+        return self._rfhandles[filename]
 
     def _normalizeport(self, port):
         """Normalize a port name
@@ -80,21 +95,92 @@ class Device(object):
     def __str__(self):
         return self._devicefolder
 
+
+
+    def __enter__(self):
+        """
+        """
+        def _openhandles(mode, fnames, map_):
+            for f in fnames:
+                fhandle = self._open_file(f, mode)
+                map_[f] = fhandle
+
+        _openhandles('r', self._rcontext, self._rfhandles)
+        _openhandles('w', self._wcontext, self._wfhandles)
+        _openhandles('r+', self._rwcontext, self._rwfhandles)
+
+        return self
+
+
+    def __exit__(self, type_, value, traceback):
+        """Close any managed file handles.
+        """
+        def _closehandles(map_):
+            for _, fhandle in map_.iteritems():
+                fhandle.close()
+            map_.clear()
+
+        _closehandles(self._rfhandles)
+        _closehandles(self._wfhandles)
+        _closehandles(self._rwfhandles)
+
+
+    def _open_file(self, file, mode):
+        """Open a file in the device folder
+        """
+        import os.path
+        return open(os.path.join(self._devicefolder, file), mode)
+
     def _write_file(self, file, value):
         """Write a value to a file in the device folder
         """
-        import os
-        cmdpath = os.path.join(self._devicefolder, file)
-        with open(cmdpath, 'w') as cmd:
-            cmd.write(value)
+        if self._wfhandles.has_key(file):
+            self._wfhandles[file].write(value)
+        elif self._rwfhandles.has_key(file):
+            self._rwfhandles[file].write(value)
+        else:
+            import os
+            cmdpath = os.path.join(self._devicefolder, file)
+            with open(cmdpath, 'w') as cmd:
+                cmd.write(value)
+
+    def _read_fhandle(self, fhandle):
+        fhandle.seek(0)
+        return fhandle.read()[0:-1]
 
     def _read_file(self, file):
         """Read a value from a file in the device folder
         """
-        import os
-        cmdpath = os.path.join(self._devicefolder, file)
-        with open(cmdpath, 'r') as cmd:
-            return cmd.read()[0:-1]
+        import logging
+        logger = logging.getLogger(__name__)
+        self._dblogcounter += 1
+
+        if self._rfhandles.has_key(file):
+
+            if self._dblogcounter>30*5:
+                logger.debug("Read from managed read-file %(name)s"%{'name': file})
+                self._dblogcounter=0
+
+            self._rfhandles[file].seek(0)
+            return self._rfhandles[file].read()[0:-1]
+        elif self._rwfhandles.has_key(file):
+
+            if self._dblogcounter>30*5:
+                logger.debug("Read from managed read-write file %(name)s"%{'name': file})
+                self._dblogcounter = 0
+
+            self._rwfhandles[file].seek(0)
+            return self._rwfhandles[file].read()[0:-1]
+        else:
+
+            if self._dblogcounter>30*5:
+                logger.debug("Read from un-managed file %(name)s"%{'name': file})
+                self._dblogcounter=0
+
+            import os
+            cmdpath = os.path.join(self._devicefolder, file)
+            with open(cmdpath, 'r') as cmd:
+                return cmd.read()[0:-1]
 
     def _get_address(self):
         """Name of the port this motor is connected to
@@ -222,39 +308,25 @@ class TachoMotor(Device):
     """
     _basefolder = "/sys/class/tacho-motor"
 
-    def __init__(self, port):
-        super(TachoMotor, self).__init__(port)
+    _propertyfilemap = {
+        "Position": "position",
+        "Position_SP": "position_sp",
+        "Duty_Cycle": "duty_cycle",
+        "Duty_Cycle_SP": "duty_cycle_sp",
+        "Speed": "speed",
+        "Speed_SP": "speed_sp",
+    }
+
+    def __init__(self, port, rcmproperties=None):
+        rcmproperties = rcmproperties or []
+        super(TachoMotor, self).__init__(port, rwcontext=[TachoMotor._propertyfilemap[property_] for property_ in rcmproperties])
 
         # Folder with all files for controling and reading the motor
         #
         self._motorfolder   = self._devicefolder
-        
-        # File handles to file to set speed etc. Is initialized in __enter__()
-        #
-        self._duty_cycle_sp = None
-
-    def __enter__(self):
-        """
-        Open 'duty_cycle_sp' in read/write mode
-        if they not already are.
-        """
-        import os
-        if self._duty_cycle_sp==None:
-            mdpath = os.path.join(self._motorfolder,"duty_cycle_sp")
-            self._duty_cycle_sp = open(mdpath, 'r+')
-        
-        return self
-        
-    def __exit__(self, type_, value, traceback):
-        """Close any managed file handles.
-        """
-        if self._duty_cycle_sp:
-            self._duty_cycle_sp.close()
-            self._duty_cycle_sp = None
-            
 
     def getreadproperties(self):
-        return ['Position', 'Duty_Cycle', 'Speed']
+        return TachoMotor._propertyfilemap.keys()
 
     def _get_command(self):
         raise RuntimeError("Command is a write only property")
@@ -307,11 +379,7 @@ class TachoMotor(Device):
         Returns:
             int: Duty cycle setpoint in percents. Can be negative
         """
-        if self._duty_cycle_sp:
-            self._duty_cycle_sp.seek(0)
-            return int(self._duty_cycle_sp.read())
-        else:
-            return int(self._read_file('duty_cycle_sp'))
+        return int(self._read_file('duty_cycle_sp'))
 
     def _set_duty_cycle_sp(self, duty_cycle):
         """Sets the duty cycle setpoint
@@ -319,11 +387,7 @@ class TachoMotor(Device):
         Args:
             duty_cycle_sp (int or str): Duty cycle setpoint in percents. Can be negative
         """
-        if self._duty_cycle_sp:
-            self._duty_cycle_sp.write(str(duty_cycle))
-            self._duty_cycle_sp.flush()
-        else:
-            self._write_file('duty_cycle_sp', str(duty_cycle))
+        self._write_file('duty_cycle_sp', str(duty_cycle))
 
     Duty_Cycle_SP = property(_get_duty_cycle_sp,_set_duty_cycle_sp)
 
@@ -436,6 +500,7 @@ class TachoMotor(Device):
 
 
     def _get_speed_regulation_enabled(self):
+        # TODO: the file 'speed_regulation' does not exist
         return self._read_file('speed_regulation')
 
     def _set_speed_regulation_enabled(self, on_or_off):
@@ -444,6 +509,7 @@ class TachoMotor(Device):
         Args:
             on_or_off (str): Either 'on' or 'off'
         """
+        # TODO: the file 'speed_regulation' does not exist
         self._write_file('speed_regulation', on_or_off)
 
     Speed_Regulation_Enabled = property(_get_speed_regulation_enabled, _set_speed_regulation_enabled)
@@ -454,9 +520,6 @@ class TachoMotor(Device):
         with open(cmd, 'w') as c:
             c.write('reset')
 
-    def stop(self):
-        self.Command = 'stop'
-    
     def set_stop(self,command):
         """Set the behaviour of self.stop()
         
@@ -491,47 +554,82 @@ class TachoMotor(Device):
 
 
 class Infrared_Sensor(Device):
+    """Interface to the Infra-red sensor
 
+    Args:
+        port (str): Port on which the device is connected
+        rcmproperties (iter of str): List of properties whoes files will be managed within a 'with' statement
+    """
     _basefolder = "/sys/class/lego-sensor"
-    _maxvalues  = 8
 
-    def __init__(self, port):
-        super(Infrared_Sensor, self).__init__(port)
-        self._sensorfolder = self._devicefolder
-        self._valuefps     = [ None for i in range(Infrared_Sensor._maxvalues) ]
+    _propertyfilemap = {
+        "Proximity": "value0",
+        "SeekHeading_1": "value0",
+        "SeekHeading_2": "value2",
+        "SeekHeading_3": "value4",
+        "SeekHeading_4": "value6",
+        "SeekDistance_1": "value1",
+        "SeekDistance_2": "value3",
+        "SeekDistance_3": "value5",
+        "SeekDistance_4": "value7"
+    }
+
+    def __init__(self, port, rcmproperties=None):
+        self._rcmproperties  = rcmproperties or []
+        values = set([ Infrared_Sensor._propertyfilemap[p] for p in rcmproperties])
+        super(Infrared_Sensor, self).__init__(port, rcontext=values)
+
+        # Generate properties for seekheading and seekdistance for all the channels
+        #
+        # TODO: Little experiment, better spell them out as there are only 4 of each
+        # TODO: or code the managed properties as functions where functions with zero arguments are just values
+        #
+        """
+        for i in range(4):
+            pname  = "SeekDistance_%(i)d"%{'i': i+1}
+            fvalue = lambda i:property(lambda slf: slf._get_value(self._seekdistancevalueindex(i+1)))
+            setattr(Infrared_Sensor, pname, fvalue(i))
+
+            pname  = "SeekHeading_%(i)d"%{'i': i+1}
+            fvalue = lambda i:property(lambda slf: slf._get_value(self._seekheadingvalueindex(i+1)))
+            setattr(Infrared_Sensor, pname, fvalue(i))
+        """
+
+    SeekDistance_1 = property(lambda self: self.SeekDistance(1))
+    SeekDistance_2 = property(lambda self: self.SeekDistance(2))
+    SeekDistance_3 = property(lambda self: self.SeekDistance(3))
+    SeekDistance_4 = property(lambda self: self.SeekDistance(4))
+
+    SeekHeading_1 = property(lambda self: self.SeekHeading(1))
+    SeekHeading_2 = property(lambda self: self.SeekHeading(2))
+    SeekHeading_3 = property(lambda self: self.SeekHeading(3))
+    SeekHeading_4 = property(lambda self: self.SeekHeading(4))
 
     def __enter__(self):
-        import os.path
-        for i in range(8):
-            self._valuefps[i] = open(os.path.join(self._sensorfolder, 'value%(n)d'%{'n':i}))
-
-    def __exit__(self, type_, value, traceback):
-        for fp in self._valuefps:
-            if fp:
-                fp.close()
-        self._valuefps = [ None for i in range(Infrared_Sensor._maxvalues) ]
-
+        super(Infrared_Sensor, self).__enter__()
 
     def getreadproperties(self):
-        return ['Proximity', 'SeekHeading', 'SeekDistance']
+        return Infrared_Sensor._propertyfilemap.keys()
 
     def _get_value(self, i):
-        if self._valuefps[i]:
-            self._valuefps[i].seek(0)
-            return self._valuefps[i].read()[0:-1]
-        else:
-            return self._read_file('value%(n)d'%{'n': i})
+        return self._read_file('value%(n)d'%{'n': i})
 
     def _get_proximity(self):
         return self._get_value(0)
 
     Proximity = property(_get_proximity)
 
+    def _seekheadingvalueindex(self, channel):
+        return (channel-1)*2
+
+    def _seekdistancevalueindex(self, channel):
+        return (channel-1)*2 +1
+
     def SeekHeading(self, channel):
-        return self._get_value((channel-1)*2)
+        return self._get_value(self._seekheadingvalueindex(channel))
 
     def SeekDistance(self, channel):
-        return self._get_value((channel-1)*2 +1)
+        return self._get_value(self._seekdistancevalueindex(channel))
 
     def _get_modes(self):
         modes = self._read_file('modes')
