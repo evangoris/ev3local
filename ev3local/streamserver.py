@@ -8,12 +8,6 @@ respond with a potentially endless stream of ; separated pairs TIMESTAMP,VALUE.
 Here TIMESTAMP is a float indicating the time at which VALUE was sampled
 in the number of seconds since the server started.
 
-The server accepts the following arguments
-    --address=ADDRESS (default to '0.0.0.0')
-    --port=PORT (default to 5000)
-    --nconnections=N (default to 5)
-    --freq=F, Number of samples per second that are send (default to 30)
-
 
 Implementation
     For each stream the server starts a thread. On this thread
@@ -23,57 +17,58 @@ Implementation
 
 TODO:
     Error handling
+    Separate the main routine from the rest
 
 Evan Goris, 2016
 """
-import logging, argparse
-logging.basicConfig(level=logging.INFO)
+import logging
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--address", help="address to listen on", dest='address', default='0.0.0.0', type=str)
-    parser.add_argument("--port", help="port to listen on", dest='port', default=5000, type=int)
-    parser.add_argument("--ncon", help="number of simultanious connections", dest='ncon', default=5, type=int)
-    parser.add_argument("--frequency", help="frequency of the streams", dest='frequency', default=30, type=int)
-    args = parser.parse_args()
+def server(hostname='0.0.0.0', port=5000, ncon=5, frequency=30):
+    """Construct a function that starts a stream server
 
-    # Set up a function for generating timestamps
-    #
-    import time
-    starttime = time.time()
-    timer = lambda: time.time() - starttime
+    Args:
+        hostname (str): Address of the server
+        port (int): Port the server listen at
+        ncon (int): Number of simultanious connections
+        frequency (int): Number of samples per second that are send (default to 30)
 
-    # Frequency of the stream(s)
-    #
-    frequency = args.frequency
-
-    import socket, threading
-    hostname = args.address
-    port = args.port
-    mainsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    mainsocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-    try:
-        # Setup server socket
+    Returns:
+        callable: Routine that starts the server
+    """
+    def start():
+        # Set up a function for generating timestamps
         #
-        mainsocket.bind((hostname, port))
-        mainsocket.listen(args.ncon)
-        logging.info("Listening [" + hostname + ":" + str(port) + "]")
+        import time
+        starttime = time.time()
+        timer = lambda: time.time() - starttime
 
-        while True:
-            # Accept client connections and try to handle
-            # their request for a stream
+        import socket, threading
+        mainsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        mainsocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        try:
+            # Setup server socket
             #
-            clientsocket, address = mainsocket.accept()
-            try:
-                request = readrequest(clientsocket)
-                logging.info("Received [" + request + "]")
-                devicefactory, property = processrequest(request)
-                sendstream(frequency, timer, clientsocket, devicefactory, property)
-            except RuntimeError as e:
-                print str(e)
-    finally:
-        mainsocket.close()
+            mainsocket.bind((hostname, port))
+            mainsocket.listen(ncon)
+            logging.info("Listening [" + hostname + ":" + str(port) + "]")
+
+            while True:
+                # Accept client connections and try to handle
+                # their request for a stream
+                #
+                clientsocket, address = mainsocket.accept()
+                try:
+                    request = readrequest(clientsocket)
+                    logging.info("Received [" + request + "]")
+                    devicefactory, property = processrequest(request)
+                    sendstream(frequency, timer, clientsocket, devicefactory, property)
+                except RuntimeError as e:
+                    print str(e)
+        finally:
+            mainsocket.close()
+
+    return start
 
 def processrequest(request):
     """Process a request for a stream from a client
@@ -231,8 +226,3 @@ def sendmessage(s, message):
         sent = s.send(message)
         message = message[sent:]
 
-if __name__=='__main__':
-    try:
-        main()
-    except KeyboardInterrupt:
-        pass
