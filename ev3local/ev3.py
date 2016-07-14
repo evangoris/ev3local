@@ -22,6 +22,8 @@ class Device(object):
         # the type that the derived class represents
         #
 
+    _propertyfilemap = {}
+
     def __init__(self, port, rcontext=None, wcontext=None, rwcontext=None):
 
         if self.__class__._basefolder == None:
@@ -201,6 +203,50 @@ class Device(object):
 
     DeviceFolder = property(_get_devicefolder)
 
+    def propertycontextmanager(self, property, mode):
+        # TODO: Actually use this in the csserver
+
+        """Construct a contextmanager that manages a filehandle that
+        corresponds to a given property
+
+        The advantage if this over having a `Device` object as a context manager
+        is that we can have one object that manages a device and dynamically derive
+        objects that can be used in for example a stream server.
+
+        Args:
+            property (str): Property to manage a filehandle for
+            mode (str): Either 'r' (for read) or 'r+' (for read-write)
+        Returns:
+            FileContextManager: object that manages a filehandle for `property`
+        """
+        import os.path
+        filename = self.__class__._propertyfilemap[property]
+        filepath = os.path.join(self._devicefolder, filename)
+        return FileContextManager(filepath, mode, self.Driver_Name, self.Address)
+
+class FileContextManager(object):
+
+    def __init__(self, filepath, mode, drivername, address):
+        self._filepath = filepath
+        self._mode = mode
+        self.Address = address
+        self.Driver_Name = drivername
+
+    def __enter__(self):
+        self._filehandle = open(self._filepath, self._mode)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._filehandle.close()
+        self._filehandle = None
+
+    def read(self):
+        self._filehandle.seek(0)
+        return self._filehandle.read()[0:-1]
+
+    def write(self, value):
+        self._filehandle.write(value)
+
 def mapport(portname):
     """Map a port name to a class object suitable for handling the device
     connected to that port
@@ -308,18 +354,22 @@ class TachoMotor(Device):
     """
     _basefolder = "/sys/class/tacho-motor"
 
-    _propertyfilemap = {
-        "Position": "position",
-        "Position_SP": "position_sp",
-        "Duty_Cycle": "duty_cycle",
-        "Duty_Cycle_SP": "duty_cycle_sp",
-        "Speed": "speed",
-        "Speed_SP": "speed_sp",
-    }
 
     def __init__(self, port, rcmproperties=None):
+
+        propertyfilemap = {
+            "Position": "position",
+            "Position_SP": "position_sp",
+            "Duty_Cycle": "duty_cycle",
+            "Duty_Cycle_SP": "duty_cycle_sp",
+            "Speed": "speed",
+            "Speed_SP": "speed_sp",
+        }
+        TachoMotor._propertyfilemap = dict(Device._propertyfilemap.items() + propertyfilemap.items())
+
         rcmproperties = rcmproperties or []
         super(TachoMotor, self).__init__(port, rwcontext=[TachoMotor._propertyfilemap[property_] for property_ in rcmproperties])
+
 
         # Folder with all files for controling and reading the motor
         #
@@ -562,19 +612,21 @@ class Infrared_Sensor(Device):
     """
     _basefolder = "/sys/class/lego-sensor"
 
-    _propertyfilemap = {
-        "Proximity": "value0",
-        "SeekHeading_1": "value0",
-        "SeekHeading_2": "value2",
-        "SeekHeading_3": "value4",
-        "SeekHeading_4": "value6",
-        "SeekDistance_1": "value1",
-        "SeekDistance_2": "value3",
-        "SeekDistance_3": "value5",
-        "SeekDistance_4": "value7"
-    }
-
     def __init__(self, port, rcmproperties=None):
+
+        propertyfilemap = {
+            "Proximity": "value0",
+            "SeekHeading_1": "value0",
+            "SeekHeading_2": "value2",
+            "SeekHeading_3": "value4",
+            "SeekHeading_4": "value6",
+            "SeekDistance_1": "value1",
+            "SeekDistance_2": "value3",
+            "SeekDistance_3": "value5",
+            "SeekDistance_4": "value7"
+        }
+        Infrared_Sensor._propertyfilemap = dict(super(Infrared_Sensor, self)._propertyfilemap.items() + propertyfilemap)
+
         self._rcmproperties  = rcmproperties or []
         values = set([ Infrared_Sensor._propertyfilemap[p] for p in rcmproperties])
         super(Infrared_Sensor, self).__init__(port, rcontext=values)

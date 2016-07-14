@@ -23,10 +23,11 @@ Evan Goris, 2016
 """
 import logging
 
-def server(hostname='0.0.0.0', port=5000, ncon=5, frequency=30):
+def server(portmap, hostname='0.0.0.0', port=5000, ncon=5, frequency=30):
     """Construct a function that starts a stream server
 
     Args:
+        portmap (dict): Dictionary mapping portnames to contextmanagers
         hostname (str): Address of the server
         port (int): Port the server listen at
         ncon (int): Number of simultanious connections
@@ -61,8 +62,8 @@ def server(hostname='0.0.0.0', port=5000, ncon=5, frequency=30):
                 try:
                     request = readrequest(clientsocket)
                     logging.info("Received [" + request + "]")
-                    devicefactory, property = processrequest(request)
-                    sendstream(frequency, timer, clientsocket, devicefactory, property)
+                    contextmanager, property = processrequest(portmap, request)
+                    sendstream(frequency, timer, clientsocket, contextmanager, property)
                 except RuntimeError as e:
                     print str(e)
         finally:
@@ -70,7 +71,7 @@ def server(hostname='0.0.0.0', port=5000, ncon=5, frequency=30):
 
     return start
 
-def processrequest(request):
+def processrequest(portmap, request):
     """Process a request for a stream from a client
 
     Args:
@@ -85,12 +86,17 @@ def processrequest(request):
     port, property = parserequest(request)
     logging.info("Parsed [" + port + "] [" + property + "]")
 
-    deviceclass = ev3.mapport(port)
+    try:
+        contextmanager = portmap[port]
+    except KeyError:
+        deviceclass = ev3.mapport(port)
+        contextmanager = deviceclass(port).propertycontextmanager(property, 'r')
+
     #logging.info("Resolved [" + port + "] [" + deviceclass.Driver_Name + "]")
     # TODO: Make Driver_Name a class property
     #
 
-    return (lambda: deviceclass(port, rcmproperties=[property]), property)
+    return (contextmanager, property)
 
 def readrequest(sckt):
     """Read a complete request from a cocket.
@@ -110,7 +116,7 @@ def readrequest(sckt):
         request = request + chunk
     return request
 
-def sendstream(frequency, timer, sckt, devicefactory, property):
+def sendstream(frequency, timer, sckt, contextmanager, property):
     """Send a stream of timestamps and propertyvalues over a socket
 
         The stream is send asynchrone. The stream ends if the client
@@ -126,14 +132,14 @@ def sendstream(frequency, timer, sckt, devicefactory, property):
     import threading, socket
     def h():
         tname = threading.current_thread().name
-        with devicefactory() as device1:
+        with contextmanager as propertycontext:
             try:
-                    logging.info("Start stream [" + tname + "][" + device1.Driver_Name + " (" + device1.Address + ")] [" + property + "]")
-                    f = sendvaluef(sckt, device1, property, timer)
+                    logging.info("Start stream [" + tname + "][" + propertycontext.Driver_Name + " (" + propertycontext.Address + ")] [" + property + "]")
+                    f = sendvaluef(sckt, propertycontext, property, timer)
                     g = repeatf(f, frequency)
                     g()
             except socket.error as e:
-                logging.info("End stream [" + tname + "][" + device1.Driver_Name + "] [" + property + "]")
+                logging.info("End stream [" + tname + "][" + propertycontext.Driver_Name + "] [" + property + "]")
             finally:
                 sckt.close()
     thread = threading.Thread(target=h)
@@ -193,7 +199,7 @@ def repeatf(f, freq):
                 print "Too much lag"
     return fr
 
-def sendvaluef(s, device, property, timer):
+def sendvaluef(s, propertycontext, property, timer):
     """Creates a function that sends the value of a property
     of a device over a socket
 
@@ -208,7 +214,7 @@ def sendvaluef(s, device, property, timer):
     """
     import time
     def f():
-        v = getattr(device, property)
+        v = propertycontext.read()
         sendmessage(s, str(timer()) + ',' + str(v) + ';')
     return f
 

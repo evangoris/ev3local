@@ -39,7 +39,8 @@ def main():
     parser.add_argument("--frequency", help="frequency of the streams", dest='frequency', default=30, type=int)
     args = parser.parse_args()
 
-    action = server(args.address, args.port, args.ncon, args.frequency)
+    portmap = {}
+    action = server(portmap, args.address, args.port, args.ncon, args.frequency)
     action()
 
 if __name__=='__main__':
