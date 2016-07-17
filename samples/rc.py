@@ -1,12 +1,17 @@
+import ev3local.ev3
 import ev3local.pid
 
 import logging
+
+from ev3local.xbox import XBoxStateController
+
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def main():
     run()
 
-def run(steerport='A', driveport='B', maxcontrol=100.0, fadezone=30.0, loopfreq=30.0):
+def run(steerport='A', driveport='B', maxcontrol=100.0, fadezone=30.0, loopfreq=120.0):
     """Operate a RC car with an xbox controller
 
     Args:
@@ -19,7 +24,7 @@ def run(steerport='A', driveport='B', maxcontrol=100.0, fadezone=30.0, loopfreq=
     import ev3local.xbox as xbox, ev3local.ev3 as ev3, ev3local.callback as controllers
     import time
 
-    with xbox.XCEvents() as xcevents, ev3.TachoMotor(steerport) as motor, ev3.TachoMotor(driveport, rcmproperties=['Duty_Cycle_SP']) as drivemotor:
+    with xbox.XCEvents() as xcevents, ev3.TachoMotor(driveport, rcmproperties=['Duty_Cycle_SP']) as drivemotor:
 
         # Start reading xbox events
         #
@@ -32,28 +37,38 @@ def run(steerport='A', driveport='B', maxcontrol=100.0, fadezone=30.0, loopfreq=
             drivemotor.Duty_Cycle_SP = int(v)
         xcevents.connectaxes(d, 'ABS_X', 100, -100)
 
-
-        # TODO: Use the PCntrl_TachoMotorPositionManager
+        # Use a PID to control the position of the steer motor and
+        # connect an xbox axis to the setpoint of the PID
         #
-        motor.reset()
-        motor.run_direct()
+        controller = ev3local.ev3.TachoMotorPIDPositionManager(steerport, maxcontrol, fadezone)
+        axissetpoint = axissetpointf(xcevents)
 
-        kp = maxcontrol / fadezone
-        with ev3local.pid.PController(
-                kp, ev3local.pid.axissetpoint(xcevents),
-                ev3local.pid.processvariable(motor), ev3local.pid.clampedcontrol(motor, maxcontrol)) as controller:
-            try:
-                controller.start()
-                while True:
-                    time.sleep(1.0/loopfreq)
-            finally:
-                motor.reset()
-                drivemotor.reset()
-                xcevents.stop()
+        try:
+            logger.info("Controlloop started")
+            while True:
+                controller.step(axissetpoint())
+                time.sleep(1.0/loopfreq)
+        finally:
+            controller.reset()
+            drivemotor.reset()
+            xcevents.stop()
 
+def axissetpointf(xcevents):
+    """Create a function that returns the current state of an
+    absolute axis of the XBox controller
+    """
+    state = XBoxStateController(xcevents)
+    scale = 360.0
+
+    def setpoint():
+        return float(state.pvalue * scale)
+
+    return setpoint
 
 if __name__=='__main__':
     try:
         main()
     except KeyboardInterrupt:
         pass
+
+

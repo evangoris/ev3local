@@ -3,6 +3,8 @@
 Evan Goris
 2015
 """
+from ev3local.pid import PController
+
 
 class Device(object):
     """Base class for motors and sensors
@@ -248,6 +250,25 @@ class FileContextManager(object):
 
     def write(self, value):
         self._filehandle.write(value)
+
+class PropertyContextManaget(object):
+
+    def __init__(self, object, property):
+        self._object = object
+        self._property = property
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    def read(self):
+        return getattr(self._object, self._property)
+
+    def write(self, value):
+        return setattr(self._object, self._property, value)
+
 
 def mapport(portname):
     """Map a port name to a class object suitable for handling the device
@@ -705,6 +726,52 @@ class Infrared_Sensor(Device):
     Num_Values = property(_get_num_values)
 
 
+class TachoMotorPIDPositionManager(object):
+    """Device manager that controls the position of
+    a tacho-motor with a proportional controler
 
-    
-    
+    """
+    def __init__(self, port, maxcontrol, fadezone):
+        import ev3local.ev3
+        self._device = ev3local.ev3.TachoMotor(port)
+
+        # TODO: Make _device an optional argument, when provided here we should check the state instead of setting it
+        #
+        self._device.reset()
+        self._device.run_direct()
+
+        kp = maxcontrol / fadezone
+        self._pcntr = PController(kp, maxcontrol, -maxcontrol)
+
+
+    def reset(self):
+        self._device.reset()
+
+    def _set_duty_cycle(self):
+        self._device.Duty_Cycle_SP = self._pcntr.ControlVariable
+
+    def _get_position_sp(self):
+        return self._pcntr.SetPoint
+
+    def _set_position_sp(self, sp):
+        self._pcntr.SetPoint = sp
+
+    Position_SP = property(_get_position_sp, _set_position_sp)
+
+    def _get_device(self):
+        return self._device
+
+    Device = property(_get_device)
+
+    def _get_pcntrl(self):
+        return self._pcntr
+
+    PCntrl = property(_get_pcntrl)
+
+    def step(self, setpoint):
+        self._pcntr.SetPoint = setpoint
+        self._pcntr.ProcesVariable = self.Device.Position
+        self._pcntr.step()
+        self._device.Duty_Cycle_SP = int(self._pcntr.ControlVariable)
+
+
