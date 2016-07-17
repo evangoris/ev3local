@@ -138,8 +138,10 @@ class Device(object):
         """
         if self._wfhandles.has_key(file):
             self._wfhandles[file].write(value)
+            self._wfhandles[file].flush()
         elif self._rwfhandles.has_key(file):
             self._rwfhandles[file].write(value)
+            self._rwfhandles[file].flush()
         else:
             import os
             cmdpath = os.path.join(self._devicefolder, file)
