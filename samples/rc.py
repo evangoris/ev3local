@@ -21,7 +21,7 @@ def run(steerport='A', driveport='B', maxcontrol=100.0, fadezone=30.0, loopfreq=
         fadezone (float): Steering motor will slow down within setpoint +- fadezone
         loopfreq (float): Times per second the steering motor is updated
     """
-    import ev3local.xbox as xbox, ev3local.ev3 as ev3, ev3local.callback as controllers
+    import ev3local.streamserver, ev3local.xbox as xbox, ev3local.ev3 as ev3, ev3local.callback as controllers
     import time
 
     with xbox.XCEvents() as xcevents, ev3.TachoMotor(driveport, rcmproperties=['Duty_Cycle_SP']) as drivemotor:
@@ -43,6 +43,15 @@ def run(steerport='A', driveport='B', maxcontrol=100.0, fadezone=30.0, loopfreq=
         controller = ev3local.ev3.TachoMotorPIDPositionManager(steerport, maxcontrol, fadezone)
         axissetpoint = axissetpointf(xcevents)
 
+        #
+        #
+        import threading
+        portmap = {'outA': controller}
+        streamserver = ev3local.streamserver.server(portmap)
+        streamthread = threading.Thread(target=streamserver)
+        streamthread.daemon = True
+        streamthread.start()
+
         try:
             logger.info("Controlloop started")
             while True:
@@ -52,6 +61,7 @@ def run(steerport='A', driveport='B', maxcontrol=100.0, fadezone=30.0, loopfreq=
             controller.reset()
             drivemotor.reset()
             xcevents.stop()
+            streamserver.stop()
 
 def axissetpointf(xcevents):
     """Create a function that returns the current state of an

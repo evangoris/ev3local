@@ -39,7 +39,9 @@ def main():
     parser.add_argument("--frequency", help="frequency of the streams", dest='frequency', default=30, type=int)
     args = parser.parse_args()
 
-    portmap = {}
+    import ev3local.ev3
+    motorA = ev3local.ev3.TachoMotor('outA')
+    portmap = {'outA': motorA}
     action = server(portmap, args.address, args.port, args.ncon, args.frequency)
     action()
 

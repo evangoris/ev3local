@@ -208,23 +208,25 @@ class Device(object):
     DeviceFolder = property(_get_devicefolder)
 
     def propertycontextmanager(self, property, mode):
-        # TODO: Actually use this in the csserver
-
-        """Construct a contextmanager that manages a filehandle that
-        corresponds to a given property
+        """Construct a contextmanager that manages a file-handle that
+        corresponds to a given property.
 
         The advantage if this over having a `Device` object as a context manager
         is that we can have one object that manages a device and dynamically derive
         objects that can be used in for example a stream server.
 
         Args:
-            property (str): Property to manage a filehandle for
+            property (str): Property to manage a file-handle for
             mode (str): Either 'r' (for read) or 'r+' (for read-write)
         Returns:
-            FileContextManager: object that manages a filehandle for `property`
+            FileContextManager: object that manages a file-handle for `property`
         """
         import os.path
-        filename = self.__class__._propertyfilemap[property]
+        try:
+            filename = self.__class__._propertyfilemap[property]
+        except KeyError:
+            raise RuntimeError("Property %(p)s has no associated file"%{'p':property})
+
         filepath = os.path.join(self._devicefolder, filename)
         return FileContextManager(filepath, mode, self.Driver_Name, self.Address)
 
@@ -253,12 +255,14 @@ class FileContextManager(object):
 
 class PropertyContextManaget(object):
 
-    def __init__(self, object, property):
+    def __init__(self, object, property, drivername, address):
         self._object = object
         self._property = property
+        self.Address = address
+        self.Driver_Name = drivername
 
     def __enter__(self):
-        pass
+        return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         pass
@@ -740,7 +744,7 @@ class TachoMotorPIDPositionManager(object):
         self._device.reset()
         self._device.run_direct()
 
-        kp = maxcontrol / fadezone
+        kp = 0.75*maxcontrol / fadezone
         self._pcntr = PController(kp, maxcontrol, -maxcontrol)
 
 
@@ -774,4 +778,8 @@ class TachoMotorPIDPositionManager(object):
         self._pcntr.step()
         self._device.Duty_Cycle_SP = int(self._pcntr.ControlVariable)
 
-
+    def propertycontextmanager(self, property, mode):
+        if property=='Position_SP':
+            return PropertyContextManaget(self, property, self.Device.Driver_Name, self.Device.Address)
+        else:
+            return self.Device.propertycontextmanager(property, mode)

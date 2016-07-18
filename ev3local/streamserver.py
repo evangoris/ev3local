@@ -27,7 +27,8 @@ def server(portmap, hostname='0.0.0.0', port=5000, ncon=5, frequency=30):
     """Construct a function that starts a stream server
 
     Args:
-        portmap (dict): Dictionary mapping portnames to contextmanagers
+        portmap (dict): Dictionary mapping portnames objects with a
+            propertycontextmanager() method (see ev3.Device for example)
         hostname (str): Address of the server
         port (int): Port the server listen at
         ncon (int): Number of simultanious connections
@@ -36,6 +37,13 @@ def server(portmap, hostname='0.0.0.0', port=5000, ncon=5, frequency=30):
     Returns:
         callable: Routine that starts the server
     """
+
+    # Setup pipe
+    # over which the server can be stopped
+    #
+    import os
+    signalrfd, signalwfd = os.pipe()
+
     def start():
         # Set up a function for generating timestamps
         #
@@ -52,12 +60,20 @@ def server(portmap, hostname='0.0.0.0', port=5000, ncon=5, frequency=30):
             #
             mainsocket.bind((hostname, port))
             mainsocket.listen(ncon)
+            mainsocket.setblocking(0)
+
+
             logging.info("Listening [" + hostname + ":" + str(port) + "]")
 
             while True:
                 # Accept client connections and try to handle
                 # their request for a stream
                 #
+                import select
+                rs, _, _ = select.select([mainsocket, signalrfd], [], [])
+                if signalrfd in rs:
+                    break
+
                 clientsocket, address = mainsocket.accept()
                 try:
                     request = readrequest(clientsocket)
@@ -68,8 +84,30 @@ def server(portmap, hostname='0.0.0.0', port=5000, ncon=5, frequency=30):
                     print str(e)
         finally:
             mainsocket.close()
+            os.close(signalrfd)
+            os.close(signalwfd)
 
-    return start
+    return ServerProcess(start, signalwfd)
+
+
+class ServerProcess(object):
+    """Process than can be started and stopped
+
+    Args:
+        process (callable): Routine representing the process
+        signalwfd (int): File descriptor that makes `process` return when written to
+    """
+    def __init__(self, process, signalwfd):
+        self._process = process
+        self._signalwfd = signalwfd
+
+    def __call__(self):
+        self._process()
+
+    def stop(self):
+        import os
+        os.write(self._signalwfd, "STOP")
+
 
 def processrequest(portmap, request):
     """Process a request for a stream from a client
@@ -87,10 +125,12 @@ def processrequest(portmap, request):
     logging.info("Parsed [" + port + "] [" + property + "]")
 
     try:
-        contextmanager = portmap[port]
+        deviceobject = portmap[port]
     except KeyError:
         deviceclass = ev3.mapport(port)
-        contextmanager = deviceclass(port).propertycontextmanager(property, 'r')
+        deviceobject = deviceclass(port)
+
+    contextmanager = deviceobject.propertycontextmanager(property, 'r')
 
     #logging.info("Resolved [" + port + "] [" + deviceclass.Driver_Name + "]")
     # TODO: Make Driver_Name a class property
