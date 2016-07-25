@@ -3,10 +3,11 @@
 Evan Goris
 2015
 """
+from ev3local.iattribute import AttributeIteratorMixin
 from ev3local.pid import PController
 
 
-class Device(object):
+class Device(AttributeIteratorMixin):
     """Base class for motors and sensors
 
     Contains some functionality common to all devices
@@ -138,17 +139,21 @@ class Device(object):
     def _write_file(self, file, value):
         """Write a value to a file in the device folder
         """
-        if self._wfhandles.has_key(file):
-            self._wfhandles[file].write(value)
-            self._wfhandles[file].flush()
-        elif self._rwfhandles.has_key(file):
-            self._rwfhandles[file].write(value)
-            self._rwfhandles[file].flush()
-        else:
-            import os
-            cmdpath = os.path.join(self._devicefolder, file)
-            with open(cmdpath, 'w') as cmd:
-                cmd.write(value)
+        try:
+            if self._wfhandles.has_key(file):
+                self._wfhandles[file].write(value)
+                self._wfhandles[file].flush()
+            elif self._rwfhandles.has_key(file):
+                self._rwfhandles[file].write(value)
+                self._rwfhandles[file].flush()
+            else:
+                import os
+                cmdpath = os.path.join(self._devicefolder, file)
+                with open(cmdpath, 'w') as cmd:
+                    cmd.write(value)
+        except IOError as e:
+            print "Error writing %(v)s to %(f)s"%{'v': value, 'f': file}
+            raise
 
     def _read_fhandle(self, fhandle):
         fhandle.seek(0)
@@ -157,32 +162,13 @@ class Device(object):
     def _read_file(self, file):
         """Read a value from a file in the device folder
         """
-        import logging
-        logger = logging.getLogger(__name__)
-        self._dblogcounter += 1
-
         if self._rfhandles.has_key(file):
-
-            if self._dblogcounter>30*5:
-                logger.debug("Read from managed read-file %(name)s"%{'name': file})
-                self._dblogcounter=0
-
             self._rfhandles[file].seek(0)
             return self._rfhandles[file].read()[0:-1]
         elif self._rwfhandles.has_key(file):
-
-            if self._dblogcounter>30*5:
-                logger.debug("Read from managed read-write file %(name)s"%{'name': file})
-                self._dblogcounter = 0
-
             self._rwfhandles[file].seek(0)
             return self._rwfhandles[file].read()[0:-1]
         else:
-
-            if self._dblogcounter>30*5:
-                logger.debug("Read from un-managed file %(name)s"%{'name': file})
-                self._dblogcounter=0
-
             import os
             cmdpath = os.path.join(self._devicefolder, file)
             with open(cmdpath, 'r') as cmd:
@@ -230,6 +216,30 @@ class Device(object):
         filepath = os.path.join(self._devicefolder, filename)
         return FileContextManager(filepath, mode, self.Driver_Name, self.Address)
 
+
+    def iattribute(self, name, type_=str):
+        """Returns an iterator over an attribute
+
+        If the property in question is associated with a file
+        via the _propertyfilemap dictionary then an iterator is
+        returned within the context of a file handle. Otherwise
+        the base method AttributeIteratorMixin.iattribute() is used
+
+        """
+        try:
+            filename = self.__class__._propertyfilemap[name]
+            return self._fileiter(filename, type_)
+        except KeyError:
+            return AttributeIteratorMixin.iattribute(self, name)
+
+    def _fileiter(self, filename, type_):
+        import os.path
+        filepath = os.path.join(self._devicefolder, filename)
+        with open(filepath, 'r') as f:
+            while True:
+                f.seek(0)
+                yield type_(f.read()[:-1])
+
 class FileContextManager(object):
 
     def __init__(self, filepath, mode, drivername, address):
@@ -252,6 +262,7 @@ class FileContextManager(object):
 
     def write(self, value):
         self._filehandle.write(value)
+        self._filehandle.flush()
 
 class PropertyContextManaget(object):
 
@@ -629,7 +640,6 @@ class TachoMotor(Device):
     def run_direct(self):
         self.Command = 'run-direct'
 
-
 class Infrared_Sensor(Device):
     """Interface to the Infra-red sensor
 
@@ -652,10 +662,10 @@ class Infrared_Sensor(Device):
             "SeekDistance_3": "value5",
             "SeekDistance_4": "value7"
         }
-        Infrared_Sensor._propertyfilemap = dict(super(Infrared_Sensor, self)._propertyfilemap.items() + propertyfilemap)
+        Infrared_Sensor._propertyfilemap = dict(super(Infrared_Sensor, self)._propertyfilemap.items() + propertyfilemap.items())
 
         self._rcmproperties  = rcmproperties or []
-        values = set([ Infrared_Sensor._propertyfilemap[p] for p in rcmproperties])
+        values = set([ Infrared_Sensor._propertyfilemap[p] for p in self._rcmproperties])
         super(Infrared_Sensor, self).__init__(port, rcontext=values)
 
         # Generate properties for seekheading and seekdistance for all the channels
@@ -729,8 +739,7 @@ class Infrared_Sensor(Device):
 
     Num_Values = property(_get_num_values)
 
-
-class TachoMotorPIDPositionManager(object):
+class TachoMotorPIDPositionManager(AttributeIteratorMixin):
     """Device manager that controls the position of
     a tacho-motor with a proportional controler
 
@@ -744,8 +753,9 @@ class TachoMotorPIDPositionManager(object):
         self._device.reset()
         self._device.run_direct()
 
-        kp = 0.75*maxcontrol / fadezone
-        self._pcntr = PController(kp, maxcontrol, -maxcontrol)
+        kp = 0.5*maxcontrol / fadezone
+        kd = 0.05
+        self._pcntr = PController(kp, kd, maxcontrol, -maxcontrol)
 
 
     def reset(self):

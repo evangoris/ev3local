@@ -78,8 +78,8 @@ def server(portmap, hostname='0.0.0.0', port=5000, ncon=5, frequency=30):
                 try:
                     request = readrequest(clientsocket)
                     logging.info("Received [" + request + "]")
-                    contextmanager, property = processrequest(portmap, request)
-                    sendstream(frequency, timer, clientsocket, contextmanager, property)
+                    attriter, property = processrequest(portmap, request)
+                    sendstream(frequency, timer, clientsocket, attriter, property)
                 except RuntimeError as e:
                     print str(e)
         finally:
@@ -130,13 +130,7 @@ def processrequest(portmap, request):
         deviceclass = ev3.mapport(port)
         deviceobject = deviceclass(port)
 
-    contextmanager = deviceobject.propertycontextmanager(property, 'r')
-
-    #logging.info("Resolved [" + port + "] [" + deviceclass.Driver_Name + "]")
-    # TODO: Make Driver_Name a class property
-    #
-
-    return (contextmanager, property)
+    return (deviceobject, property)
 
 def readrequest(sckt):
     """Read a complete request from a cocket.
@@ -156,7 +150,7 @@ def readrequest(sckt):
         request = request + chunk
     return request
 
-def sendstream(frequency, timer, sckt, contextmanager, property):
+def sendstream(frequency, timer, sckt, attriter, property):
     """Send a stream of timestamps and propertyvalues over a socket
 
         The stream is send asynchrone. The stream ends if the client
@@ -170,18 +164,18 @@ def sendstream(frequency, timer, sckt, contextmanager, property):
         property (str): Property of `device` the stream the values of
     """
     import threading, socket
+
     def h():
         tname = threading.current_thread().name
-        with contextmanager as propertycontext:
-            try:
-                    logging.info("Start stream [" + tname + "][" + propertycontext.Driver_Name + " (" + propertycontext.Address + ")] [" + property + "]")
-                    f = sendvaluef(sckt, propertycontext, property, timer)
-                    g = repeatf(f, frequency)
-                    g()
-            except socket.error as e:
-                logging.info("End stream [" + tname + "][" + propertycontext.Driver_Name + "] [" + property + "]")
-            finally:
-                sckt.close()
+        try:
+            logging.info("Start stream [" + tname + "][" + attriter.Driver_Name + " (" + attriter.Address + ")] [" + property + "]")
+            for value in attriter.iattribute(property):
+                sendmessage(sckt, str(timer()) + ',' + str(value) + ';')
+        except socket.error as e:
+            logging.info("End stream [" + tname + "][" + attriter.Driver_Name + "] [" + property + "]")
+        finally:
+            sckt.close()
+
     thread = threading.Thread(target=h)
     thread.start()
 
