@@ -21,7 +21,7 @@ def irun(steerport='A', driveport='B', maxcontrol=100.0, fadezone=60.0, loopfreq
     drivemotor = ev3.TachoMotor(driveport)
     steermotor = ev3.TachoMotor(steerport)
 
-    with xbox.XCEvents() as xcevents, drivemotor.propertycontextmanager('Duty_Cycle_SP', 'w') as drivefile, steermotor.propertycontextmanager('Duty_Cycle_SP', 'w') as steerfile:
+    with xbox.XCEvents() as xcevents, drivemotor.propertycontextmanager('Duty_Cycle_SP', 'w') as drivefile:
 
         # Start reading xbox events
         #
@@ -48,6 +48,7 @@ def irun(steerport='A', driveport='B', maxcontrol=100.0, fadezone=60.0, loopfreq
         isetp = itertools.imap(lambda x: 360*x, xcevents.iattribute('EV_ABS', 'ABS_RX'))
         impos = steermotor.iattribute('Position', type_=float)
         icont = pid.iprocess(isetp, impos)
+        steermotor_dutycycle = steermotor.sattribute(icont, 'Duty_Cycle_SP')
 
         #controller = ev3local.ev3.TachoMotorPIDPositionManager(steerport, maxcontrol, fadezone)
         #axissetpoint = axissetpointf(xcevents)
@@ -63,8 +64,8 @@ def irun(steerport='A', driveport='B', maxcontrol=100.0, fadezone=60.0, loopfreq
 
         try:
             logger.info("Controlloop started")
-            for cont in icont:
-                steerfile.write(str(int(cont)))
+            while True:
+                steermotor_dutycycle.next()
                 time.sleep(1.0/loopfreq)
         finally:
             steermotor.reset()

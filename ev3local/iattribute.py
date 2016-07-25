@@ -13,3 +13,7 @@ class AttributeIteratorMixin(object):
         while True:
             yield getattr(self, name)
 
+    def sattribute(self, iter, name):
+        for value in iter:
+            setattr(self, name, str(int(value)))
+            yield value

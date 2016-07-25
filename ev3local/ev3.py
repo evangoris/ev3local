@@ -217,6 +217,22 @@ class Device(AttributeIteratorMixin):
         return FileContextManager(filepath, mode, self.Driver_Name, self.Address)
 
 
+    def _filesiter(self, iter, filename):
+        import os.path
+        filepath = os.path.join(self._devicefolder, filename)
+        with open(filepath, 'w') as f:
+            for value in iter:
+                f.write(str(int(value)))
+                f.flush()
+                yield value
+
+    def sattribute(self, iter, name):
+        try:
+            filename = self.__class__._propertyfilemap[name]
+            return self._filesiter(iter, filename)
+        except KeyError:
+            return AttributeIteratorMixin.sattribute(self, iter, name)
+
     def iattribute(self, name, type_=str):
         """Returns an iterator over an attribute
 
