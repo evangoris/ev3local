@@ -13,15 +13,14 @@ def main():
 
 
 def irun(steerport='A', driveport='B', maxcontrol=100.0, fadezone=60.0, loopfreq=120.0):
-    """Same as run() but implemented with iterator interface
-    """
-    import ev3local.streamserver, ev3local.xbox as xbox, ev3local.ev3 as ev3
-    import time
+    import ev3local.ev3 as ev3
+    with ev3.TachoMotor(steerport) as steermotor, ev3.TachoMotor(driveport) as drivemotor:
+        run(drivemotor, steermotor, maxcontrol, fadezone, loopfreq)
 
-    drivemotor = ev3.TachoMotor(driveport)
-    steermotor = ev3.TachoMotor(steerport)
 
-    with xbox.XCEvents() as xcevents, drivemotor.propertycontextmanager('Duty_Cycle_SP', 'w') as drivefile:
+def run(drivemotor, steermotor, maxcontrol, fadezone, loopfreq):
+    import ev3local.xbox as xbox
+    with xbox.XCEvents() as xcevents:
 
         # Start reading xbox events
         #
@@ -30,39 +29,48 @@ def irun(steerport='A', driveport='B', maxcontrol=100.0, fadezone=60.0, loopfreq
         # Connect an xbox axis to the drive motor
         #
         drivemotor.run_direct()
-        def d(v):
-            drivefile.write(str(int(v)))
-        xcevents.connectaxes(d, 'ABS_X', 100, -100)
+        def f(value):
+            drivemotor.Duty_Cycle_SP = int(value)
+        xcevents.connectaxes(f, 'ABS_X', 100, -100)
+
 
         # Use a PID to control the position of the steer motor and
         # connect an xbox axis to the setpoint of the PID
         #
+            # Set state of steer motor
+            #
         steermotor.reset()
         steermotor.run_direct()
+
+            # PID Controller
+            #
         kp  = maxcontrol / fadezone
         kd  = 0.05
+        import ev3local.pid
         pid = ev3local.pid.PController(kp, kd, maxcontrol, -maxcontrol)
         pid.Driver_Name = 'PID'
-        pid.Address = steerport
+        pid.Address = steermotor.Address
+
+            # Connect the streams
+            #
         import itertools
         isetp = itertools.imap(lambda x: 360*x, xcevents.iattribute('EV_ABS', 'ABS_RX'))
-        impos = steermotor.iattribute('Position', type_=float)
+        impos = steermotor.iattribute('Position')
         icont = pid.iprocess(isetp, impos)
-        steermotor_dutycycle = steermotor.sattribute(icont, 'Duty_Cycle_SP')
+        steermotor_dutycycle = steermotor.sattribute(itertools.imap(int, icont), 'Duty_Cycle_SP')
 
-        #controller = ev3local.ev3.TachoMotorPIDPositionManager(steerport, maxcontrol, fadezone)
-        #axissetpoint = axissetpointf(xcevents)
-
+        # Set up a stream server to stream the PID setpoint and
+        # process variable
         #
-        #
-        import threading
-        portmap = {steerport: steermotor, 'pid': pid}
+        import threading, ev3local.streamserver
+        portmap = {steermotor.Address: steermotor, 'pid': pid}
         streamserver = ev3local.streamserver.server(portmap)
         streamthread = threading.Thread(target=streamserver)
         streamthread.daemon = True
         streamthread.start()
 
         try:
+            import time
             logger.info("Controlloop started")
             while True:
                 steermotor_dutycycle.next()

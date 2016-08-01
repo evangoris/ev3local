@@ -14,9 +14,6 @@ class Device(AttributeIteratorMixin):
 
     Args:
         port (str or int): Name of an EV3 IO port
-        rcontext (iter of str): Filename of read-only files that are managed within a 'with' statement
-        wcontext (iter of str): Filename of write-only files that are managed within a 'with' statement
-        rwcontext (iter of str): Filename of read-write files that are managed within a 'with' statement
     """
 
     _basefolder = None
@@ -27,7 +24,7 @@ class Device(AttributeIteratorMixin):
 
     _propertyfilemap = {}
 
-    def __init__(self, port, rcontext=None, wcontext=None, rwcontext=None):
+    def __init__(self, port):
 
         if self.__class__._basefolder == None:
             raise RuntimeError
@@ -35,17 +32,9 @@ class Device(AttributeIteratorMixin):
         nport = self._normalizeport(port)
         self._devicefolder = self._finddevice(nport)
 
-        self._rcontext  = rcontext or []
-        self._wcontext  = wcontext or []
-        self._rwcontext = rwcontext or []
-        self._rfhandles  = {}
-        self._wfhandles  = {}
-        self._rwfhandles = {}
-
-        self._dblogcounter = 0
-
-    def _getrfilehandle(self, filename):
-        return self._rfhandles[filename]
+        self._filehandles = {}
+            # Mapping of filenames to filehandles
+            #
 
     def _normalizeport(self, port):
         """Normalize a port name
@@ -100,35 +89,25 @@ class Device(AttributeIteratorMixin):
     def __str__(self):
         return self._devicefolder
 
-
-
     def __enter__(self):
         """
         """
-        def _openhandles(mode, fnames, map_):
-            for f in fnames:
-                fhandle = self._open_file(f, mode)
-                map_[f] = fhandle
-
-        _openhandles('r', self._rcontext, self._rfhandles)
-        _openhandles('w', self._wcontext, self._wfhandles)
-        _openhandles('r+', self._rwcontext, self._rwfhandles)
-
         return self
 
 
     def __exit__(self, type_, value, traceback):
         """Close any managed file handles.
         """
-        def _closehandles(map_):
-            for _, fhandle in map_.iteritems():
-                fhandle.close()
-            map_.clear()
+        self._closefilahandles()
 
-        _closehandles(self._rfhandles)
-        _closehandles(self._wfhandles)
-        _closehandles(self._rwfhandles)
+    def __del__(self):
+        self._closefilahandles()
 
+    def _closefilahandles(self):
+        for file, handle in self._filehandles.iteritems():
+            handle.close()
+
+        self._filehandles.clear()
 
     def _open_file(self, file, mode):
         """Open a file in the device folder
@@ -138,19 +117,26 @@ class Device(AttributeIteratorMixin):
 
     def _write_file(self, file, value):
         """Write a value to a file in the device folder
+
+        Args:
+            file (str): Name of the file to write to
+            value (str): Value to write
+            type_ (type): Type to write, `value` will be cast before written
         """
         try:
-            if self._wfhandles.has_key(file):
-                self._wfhandles[file].write(value)
-                self._wfhandles[file].flush()
-            elif self._rwfhandles.has_key(file):
-                self._rwfhandles[file].write(value)
-                self._rwfhandles[file].flush()
-            else:
+            if not self._filehandles.has_key(file):
                 import os
                 cmdpath = os.path.join(self._devicefolder, file)
-                with open(cmdpath, 'w') as cmd:
-                    cmd.write(value)
+                try:
+                    filehandle = open(cmdpath, 'r+')
+                except IOError:
+                    filehandle = open(cmdpath, 'w')
+                self._filehandles[file] = filehandle
+
+            filehandle = self._filehandles[file]
+            filehandle.write(value)
+            filehandle.flush()
+
         except IOError as e:
             print "Error writing %(v)s to %(f)s"%{'v': value, 'f': file}
             raise
@@ -161,21 +147,35 @@ class Device(AttributeIteratorMixin):
 
     def _read_file(self, file):
         """Read a value from a file in the device folder
+
+        Args:
+            file (str): Name of file to read from
+
+        Returns:
+            str: Value red from the file
         """
-        if self._rfhandles.has_key(file):
-            self._rfhandles[file].seek(0)
-            return self._rfhandles[file].read()[0:-1]
-        elif self._rwfhandles.has_key(file):
-            self._rwfhandles[file].seek(0)
-            return self._rwfhandles[file].read()[0:-1]
-        else:
-            import os
-            cmdpath = os.path.join(self._devicefolder, file)
-            with open(cmdpath, 'r') as cmd:
-                return cmd.read()[0:-1]
+        try:
+            if not self._filehandles.has_key(file):
+                import os
+                cmdpath = os.path.join(self._devicefolder, file)
+                try:
+                    filehandle = open(cmdpath, 'r+')
+                except IOError:
+                    filehandle = open(cmdpath, 'r')
+                self._filehandles[file] = filehandle
+
+            filehandle = self._filehandles[file]
+            return self._read_fhandle(filehandle)
+
+        except IOError as e:
+            print "Error reading from %(f)s"%{'f': file}
+            raise
 
     def _get_address(self):
         """Name of the port this motor is connected to
+
+        Returns:
+            str: Name of the port
         """
         return self._read_file('address')
 
@@ -183,48 +183,22 @@ class Device(AttributeIteratorMixin):
 
     def _get_driver_name(self):
         """Returns the name of the driver that provides this tacho motor device
+
+        Returns:
+            str: Driver name
         """
         return self._read_file('driver_name')
 
     Driver_Name = property(_get_driver_name)
 
     def _get_devicefolder(self):
+        """
+        Returns:
+            str: Sub-folder of '/sys/class' that represents the attached device
+        """
         return self._devicefolder
 
     DeviceFolder = property(_get_devicefolder)
-
-    def propertycontextmanager(self, property, mode):
-        """Construct a contextmanager that manages a file-handle that
-        corresponds to a given property.
-
-        The advantage if this over having a `Device` object as a context manager
-        is that we can have one object that manages a device and dynamically derive
-        objects that can be used in for example a stream server.
-
-        Args:
-            property (str): Property to manage a file-handle for
-            mode (str): Either 'r' (for read) or 'r+' (for read-write)
-        Returns:
-            FileContextManager: object that manages a file-handle for `property`
-        """
-        import os.path
-        try:
-            filename = self.__class__._propertyfilemap[property]
-        except KeyError:
-            raise RuntimeError("Property %(p)s has no associated file"%{'p':property})
-
-        filepath = os.path.join(self._devicefolder, filename)
-        return FileContextManager(filepath, mode, self.Driver_Name, self.Address)
-
-
-    def _filesiter(self, iter, filename):
-        import os.path
-        filepath = os.path.join(self._devicefolder, filename)
-        with open(filepath, 'w') as f:
-            for value in iter:
-                f.write(str(int(value)))
-                f.flush()
-                yield value
 
     def sattribute(self, iter, name):
         try:
@@ -233,7 +207,7 @@ class Device(AttributeIteratorMixin):
         except KeyError:
             return AttributeIteratorMixin.sattribute(self, iter, name)
 
-    def iattribute(self, name, type_=str):
+    def iattribute(self, name):
         """Returns an iterator over an attribute
 
         If the property in question is associated with a file
@@ -244,62 +218,26 @@ class Device(AttributeIteratorMixin):
         """
         try:
             filename = self.__class__._propertyfilemap[name]
-            return self._fileiter(filename, type_)
+            return self._fileiter(filename)
         except KeyError:
             return AttributeIteratorMixin.iattribute(self, name)
 
-    def _fileiter(self, filename, type_):
+    def _filesiter(self, iter, filename):
+        import os.path
+        filepath = os.path.join(self._devicefolder, filename)
+        with open(filepath, 'w') as f:
+            for value in iter:
+                f.write(str(value))
+                f.flush()
+                yield value
+
+    def _fileiter(self, filename):
         import os.path
         filepath = os.path.join(self._devicefolder, filename)
         with open(filepath, 'r') as f:
             while True:
                 f.seek(0)
-                yield type_(f.read()[:-1])
-
-class FileContextManager(object):
-
-    def __init__(self, filepath, mode, drivername, address):
-        self._filepath = filepath
-        self._mode = mode
-        self.Address = address
-        self.Driver_Name = drivername
-
-    def __enter__(self):
-        self._filehandle = open(self._filepath, self._mode)
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self._filehandle.close()
-        self._filehandle = None
-
-    def read(self):
-        self._filehandle.seek(0)
-        return self._filehandle.read()[0:-1]
-
-    def write(self, value):
-        self._filehandle.write(value)
-        self._filehandle.flush()
-
-class PropertyContextManaget(object):
-
-    def __init__(self, object, property, drivername, address):
-        self._object = object
-        self._property = property
-        self.Address = address
-        self.Driver_Name = drivername
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        pass
-
-    def read(self):
-        return getattr(self._object, self._property)
-
-    def write(self, value):
-        return setattr(self._object, self._property, value)
-
+                yield int(f.read()[:-1])
 
 def mapport(portname):
     """Map a port name to a class object suitable for handling the device
@@ -390,7 +328,6 @@ def lstachomotors():
     """
     return _lsdevices("/sys/class/tacho-motor")
 
-
 class TachoMotor(Device):
     """Represents a motor connected to a port
     
@@ -409,7 +346,7 @@ class TachoMotor(Device):
     _basefolder = "/sys/class/tacho-motor"
 
 
-    def __init__(self, port, rcmproperties=None):
+    def __init__(self, port):
 
         propertyfilemap = {
             "Position": "position",
@@ -421,8 +358,7 @@ class TachoMotor(Device):
         }
         TachoMotor._propertyfilemap = dict(Device._propertyfilemap.items() + propertyfilemap.items())
 
-        rcmproperties = rcmproperties or []
-        super(TachoMotor, self).__init__(port, rwcontext=[TachoMotor._propertyfilemap[property_] for property_ in rcmproperties])
+        super(TachoMotor, self).__init__(port)
 
 
         # Folder with all files for controling and reading the motor
@@ -433,6 +369,8 @@ class TachoMotor(Device):
         return TachoMotor._propertyfilemap.keys()
 
     def _get_command(self):
+        """
+        """
         raise RuntimeError("Command is a write only property")
 
     def _set_command(self,command):
@@ -489,7 +427,7 @@ class TachoMotor(Device):
         """Sets the duty cycle setpoint
 
         Args:
-            duty_cycle_sp (int or str): Duty cycle setpoint in percents. Can be negative
+            duty_cycle_sp (int): Duty cycle setpoint in percents. Can be negative
         """
         self._write_file('duty_cycle_sp', str(duty_cycle))
 
@@ -633,6 +571,10 @@ class TachoMotor(Device):
         self._write_file('stop_command', command)
         
     def get_stop(self):
+        """
+        Returns:
+            str: The currently set command used for stopping the motor
+        """
         return self._read_file('stop_command')
         
     stop_command = property(get_stop,set_stop)
@@ -661,11 +603,10 @@ class Infrared_Sensor(Device):
 
     Args:
         port (str): Port on which the device is connected
-        rcmproperties (iter of str): List of properties whoes files will be managed within a 'with' statement
     """
     _basefolder = "/sys/class/lego-sensor"
 
-    def __init__(self, port, rcmproperties=None):
+    def __init__(self, port):
 
         propertyfilemap = {
             "Proximity": "value0",
@@ -680,25 +621,8 @@ class Infrared_Sensor(Device):
         }
         Infrared_Sensor._propertyfilemap = dict(super(Infrared_Sensor, self)._propertyfilemap.items() + propertyfilemap.items())
 
-        self._rcmproperties  = rcmproperties or []
-        values = set([ Infrared_Sensor._propertyfilemap[p] for p in self._rcmproperties])
-        super(Infrared_Sensor, self).__init__(port, rcontext=values)
+        super(Infrared_Sensor, self).__init__(port)
 
-        # Generate properties for seekheading and seekdistance for all the channels
-        #
-        # TODO: Little experiment, better spell them out as there are only 4 of each
-        # TODO: or code the managed properties as functions where functions with zero arguments are just values
-        #
-        """
-        for i in range(4):
-            pname  = "SeekDistance_%(i)d"%{'i': i+1}
-            fvalue = lambda i:property(lambda slf: slf._get_value(self._seekdistancevalueindex(i+1)))
-            setattr(Infrared_Sensor, pname, fvalue(i))
-
-            pname  = "SeekHeading_%(i)d"%{'i': i+1}
-            fvalue = lambda i:property(lambda slf: slf._get_value(self._seekheadingvalueindex(i+1)))
-            setattr(Infrared_Sensor, pname, fvalue(i))
-        """
 
     SeekDistance_1 = property(lambda self: self.SeekDistance(1))
     SeekDistance_2 = property(lambda self: self.SeekDistance(2))
@@ -717,95 +641,105 @@ class Infrared_Sensor(Device):
         return Infrared_Sensor._propertyfilemap.keys()
 
     def _get_value(self, i):
-        return self._read_file('value%(n)d'%{'n': i})
+        """
+        Args:
+            i (int): Value to read
+
+        Returns:
+            int: Value from value `i`
+        """
+        return int(self._read_file('value%(n)d'%{'n': i}))
 
     def _get_proximity(self):
+        """
+        Assumption:
+            Mode == 'Proximity'
+
+        Returns:
+            int: Proximity value
+        """
         return self._get_value(0)
 
     Proximity = property(_get_proximity)
 
     def _seekheadingvalueindex(self, channel):
+        """
+        Args:
+            channel (int): Channel
+
+        Returns:
+            int: Value index for reading heading for channel `channel`
+        """
         return (channel-1)*2
 
     def _seekdistancevalueindex(self, channel):
+        """
+        Args:
+            channel (int): Channel
+
+        Returns:
+            int: Value index for reading distance for channel `channel`
+        """
         return (channel-1)*2 +1
 
     def SeekHeading(self, channel):
+        """
+        Assumption:
+            Mode == 'Seek'
+
+        Args:
+            channel (int): Channel
+
+        Returns:
+            int: Heading for channel `channel`
+        """
         return self._get_value(self._seekheadingvalueindex(channel))
 
     def SeekDistance(self, channel):
+        """
+        Assumption:
+            Mode == 'Seek'
+
+        Args:
+            channel (int): Channel
+
+        Returns:
+            int: Distance for channel `channel`
+        """
         return self._get_value(self._seekdistancevalueindex(channel))
 
     def _get_modes(self):
+        """
+        Returns:
+            list of str: List of available modes
+        """
         modes = self._read_file('modes')
         return modes.split(' ')
 
     Modes = property(_get_modes)
 
     def _get_mode(self):
+        """
+        Returns:
+            str: Current set mode
+        """
         return self._read_file('mode')
 
     def _set_mode(self, mode):
+        """
+        Args:
+            mode (str): Mode to set
+        """
         self._write_file('mode', mode)
 
     Mode = property(_get_mode, _set_mode)
 
     def _get_num_values(self):
+        """
+        Returns:
+            int: Number of different values
+        """
         return int(self._read_file('num_values'))
 
     Num_Values = property(_get_num_values)
 
-class TachoMotorPIDPositionManager(AttributeIteratorMixin):
-    """Device manager that controls the position of
-    a tacho-motor with a proportional controler
-
-    """
-    def __init__(self, port, maxcontrol, fadezone):
-        import ev3local.ev3
-        self._device = ev3local.ev3.TachoMotor(port)
-
-        # TODO: Make _device an optional argument, when provided here we should check the state instead of setting it
-        #
-        self._device.reset()
-        self._device.run_direct()
-
-        kp = 0.5*maxcontrol / fadezone
-        kd = 0.05
-        self._pcntr = PController(kp, kd, maxcontrol, -maxcontrol)
-
-
-    def reset(self):
-        self._device.reset()
-
-    def _set_duty_cycle(self):
-        self._device.Duty_Cycle_SP = self._pcntr.ControlVariable
-
-    def _get_position_sp(self):
-        return self._pcntr.SetPoint
-
-    def _set_position_sp(self, sp):
-        self._pcntr.SetPoint = sp
-
-    Position_SP = property(_get_position_sp, _set_position_sp)
-
-    def _get_device(self):
-        return self._device
-
-    Device = property(_get_device)
-
-    def _get_pcntrl(self):
-        return self._pcntr
-
-    PCntrl = property(_get_pcntrl)
-
-    def step(self, setpoint):
-        self._pcntr.SetPoint = setpoint
-        self._pcntr.ProcesVariable = self.Device.Position
-        self._pcntr.step()
-        self._device.Duty_Cycle_SP = int(self._pcntr.ControlVariable)
-
-    def propertycontextmanager(self, property, mode):
-        if property=='Position_SP':
-            return PropertyContextManaget(self, property, self.Device.Driver_Name, self.Device.Address)
-        else:
-            return self.Device.propertycontextmanager(property, mode)

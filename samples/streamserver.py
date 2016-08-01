@@ -40,9 +40,12 @@ def main():
     args = parser.parse_args()
 
     import ev3local.ev3
-    motorA = ev3local.ev3.TachoMotor('outA')
-    portmap = {'outA': motorA}
-    action = server(portmap, args.address, args.port, args.ncon, args.frequency)
+    with ev3local.ev3.TachoMotor('outA') as motorA:
+        run(motorA, args.address, args.port, args.ncon, args.frequency)
+
+def run(motor, address, port, ncon, frequency):
+    portmap = {motor.Address: motor}
+    action = server(portmap, address, port, ncon, frequency)
     action()
 
 if __name__=='__main__':
