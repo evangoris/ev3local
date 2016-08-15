@@ -1,5 +1,8 @@
 """Interface to events form an Xbox controller
 
+ISSUES:
+1) When the controller disconnects (or some other internal exception happens) and then reconnects the XCEvents object is still dead
+
 Evan Goris
 2015
 """
@@ -11,8 +14,9 @@ from evdev import InputDevice, list_devices
 
 def printevent(event):
     import evdev.ecodes
-    print event.code, event.type, event.value
-    print evdev.ecodes.bytype[event.type][event.code]
+    if event.type==3 and event.code==0:
+        print event.code, event.type, event.value
+        print evdev.ecodes.bytype[event.type][event.code]
         
 class XCEvents(object):
     """Manages a sequence of events from an Xbox controller
@@ -60,6 +64,9 @@ class XCEvents(object):
     def remove_callback(self, callback):
         self._callbacks.remove(callback)
 
+    def clear_callbacks(self):
+        self._callbacks.clear()
+
     def connectaxes(self, callback, axes, max=1.0, min=-1.0):
         import evdev, evdev.ecodes
 
@@ -71,14 +78,18 @@ class XCEvents(object):
         absinfo = self.absinfo(eventcode)
         axesmin = float(absinfo.min)
         axesmax = float(absinfo.max)
+        axesrange = axesmax - axesmin
+        valuerange = max - min
+
+        if axesrange==0:
+            raise RuntimeError("Absolute axes with zero range")
+
+        a = valuerange / axesrange
+        b = -(a*axesmin - min)
 
         def callback1(event):
             if event.type==evdev.ecodes.ecodes['EV_ABS'] and event.code==evdev.ecodes.ecodes[axes]:
-                value = float(event.value)
-                if value>0:
-                    value = (value/axesmax)*max
-                else:
-                    value = (value/axesmin)*min
+                value = a*float(event.value) + b
                 callback(value)
 
         self.add_callback(callback1)
@@ -176,8 +187,10 @@ class XCEvents(object):
         for dev in devices:
             if dev.name.startswith('Xbox Gamepad'):
                 return dev
-        
-        raise IOError("No Xbox controller found")
+            if dev.name.startswith('PLAYSTATION'):
+                return dev
+
+        raise IOError("No controller found")
     
     def __enter__(self):
         self._init()
