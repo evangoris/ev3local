@@ -88,7 +88,7 @@ class XCEvents(object):
         b = -(a*axesmin - min)
 
         def callback1(event):
-            if event.type==evdev.ecodes.ecodes['EV_ABS'] and event.code==evdev.ecodes.ecodes[axes]:
+            if event.type==evdev.ecodes.ecodes['EV_ABS'] and event.code==eventcode:
                 value = a*float(event.value) + b
                 callback(value)
 
@@ -123,7 +123,12 @@ class XCEvents(object):
 
     def iattribute(self, type_, code):
         """Return an iterator that gives the values of
-        a specific axes or button
+        a specific axes or button.
+
+        Each time __next__() is called the state of the control is polled.
+        So events that happen between the poll events are missed. This is ok
+        for axes that control a PID for example but might not be good enough
+        for transmitting button presses.
 
         The value of a button is represented by 0 or 1
         The value of an axes is represented by a float in [-1, 1]
