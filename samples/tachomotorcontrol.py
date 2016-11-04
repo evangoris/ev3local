@@ -1,9 +1,12 @@
 #!/usr/bin/python
+
 import sys
 sys.path.append('/home/robot/src/ev3local')
 
+from ev3local.xbox import gen_events, gen_scaledvalue
+
+
 from ev3local.ev3 import TachoMotor
-#from ev3local.xbox import XCEvents
 
 
 def main():
@@ -16,11 +19,17 @@ def main():
         devicepath = pscontroller()
         print "Controller found. Input loop started."
 
-        events1 = gen_events(devicepath, 1)
-        values1 = gen_scaledvalue(events1, -50, 50)
+        import ev3local.xbox as xbox
+        from evdev import InputDevice
+        device = InputDevice(devicepath)
 
+        absinfo1 = xbox.absinfo(device, 1)
+        events1 = gen_events(devicepath, 1)
+        values1 = gen_scaledvalue(events1, absinfo1.min, absinfo1.max, -50, 50)
+
+        absinfo2 = xbox.absinfo(device, 5)
         events2 = gen_events(devicepath, 5)
-        values2 = gen_scaledvalue(events2, -50, 50)
+        values2 = gen_scaledvalue(events2, absinfo2.min, absinfo2.max, -50, 50)
         values2 = (-1*v if v else None for v in values2)
 
         import itertools
@@ -61,63 +70,9 @@ def main():
         tachomotorB.reset()
     """
 
-def gen_scaledvalue(events, min, max):
-    """Generate scaled values from a sequence of events
 
-    Arguments:
-        events (iter): Sequence of events
-        min (float or int): Minimum of generated values
-        max (float or int): Maximum of generated values
-
-    Yields:
-        float: Values in [`min`, `max`]
-    """
-    a = (max - min) / 256.0
-    b = max - a * 255 # max = a * 255 + b
-
-    def scale(value):
-        return a * value + b
-
-    for event in events:
-        if event:
-            yield scale(event.value)
-        else:
-            yield None
-
-def gen_events(devicepath, code):
-    """Generate EVT_ABS events from a device
-
-    The next() method of the generator returned will return the most
-    recent event since the last call to next().
-
-    Args:
-        devicepath (str): Path to device
-        code (int): Code of events to generate
-
-    Yields:
-        evdev.InputEvent: Most recent event with code `code`
-    """
-    from evdev import InputDevice
-    device = InputDevice(devicepath)
-
-    import select
-    pollobject = select.poll()
-    pollobject.register(device.fd, select.POLLIN | select.POLLPRI)
-    try:
-        while True:
-            events = pollobject.poll(0)
-            if not events:
-                yield None
-            else:
-                relevantevent = None
-                for event in device.read():
-                    import evdev.ecodes
-                    if event.type==evdev.ecodes.ecodes['EV_ABS'] and event.code==code:
-                        relevantevent = event
-                yield relevantevent
-    finally:
-        pollobject.unregister(device.fd)
-
+# TODO: Factor out pattern to search for and also return the device object
+#
 def pscontroller():
     """Find path to uinput device corresponding to a playstation controller
 

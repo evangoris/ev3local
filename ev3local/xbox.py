@@ -17,7 +17,29 @@ def printevent(event):
     if event.type==3 and event.code==0:
         print event.code, event.type, event.value
         print evdev.ecodes.bytype[event.type][event.code]
-        
+
+
+def absinfo(device, code):
+    """Get information on an absolute input axis
+
+    Args:
+        device (evdev.InputDevice): Input device
+        code (int or str): Code or symbolic name of an absolute axis
+
+    Returns:
+        AbsInfo: Named tuple with info on `type_`
+    """
+    import evdev.ecodes
+    cap = device.capabilities(absinfo=True, verbose=False)
+    if type(code)==str:
+        typecode = evdev.ecodes.ecodes[code]
+    else:
+        typecode = code
+    abscode = evdev.ecodes.ecodes['EV_ABS']
+    for info in cap[abscode]:
+        if info[0]==typecode:
+            return info[1]
+
 class XCEvents(object):
     """Manages a sequence of events from an Xbox controller
 
@@ -95,6 +117,7 @@ class XCEvents(object):
         self.add_callback(callback1)
         return callback1
 
+    # TODO: Deprecated decorator
     def absinfo(self, type_):
         """Get information on an absolute input axis
         
@@ -370,3 +393,72 @@ class XBoxStateController(object):
 
     def getreadproperties(self):
         return ['pvalue']
+
+
+# TODO: Accept multiple codes
+#
+def gen_events(device, code):
+    """Generate EVT_ABS events from a device
+
+    The next() method of the generator returned will return the most
+    recent event since the last call to next().
+
+    Args:
+        device (str): Path to device
+        code (int): Code of events to generate
+
+    Yields:
+        evdev.InputEvent: Most recent event with code `code`
+    """
+    from evdev import InputDevice
+
+    if type(device)==str:
+        inputdevice = InputDevice(device)
+    elif isinstance(device, InputDevice):
+        inputdevice = device
+    else:
+        raise RuntimeError("gen_events: Invalid value for argument `device`")
+
+    import select
+    pollobject = select.poll()
+    pollobject.register(inputdevice.fd, select.POLLIN | select.POLLPRI)
+    try:
+        while True:
+            events = pollobject.poll(0)
+            if not events:
+                yield None
+            else:
+                relevantevent = None
+                for event in inputdevice.read():
+                    import evdev.ecodes
+                    if event.type==evdev.ecodes.ecodes['EV_ABS'] and event.code==code:
+                        relevantevent = event
+                yield relevantevent
+    finally:
+        pollobject.unregister(inputdevice.fd)
+
+
+def gen_scaledvalue(events, minsource, maxsource, min, max):
+    """Generate scaled values from a sequence of events
+
+    Arguments:
+        events (iter): Sequence of events
+        minsource (num): Minimum of value attribute of the events
+        maxsource (num): Maximum of value attribute of the events
+        min (num): Minimum of generated values
+        max (num): Maximum of generated values
+
+    Yields:
+        float: Values in [`min`, `max`]
+    """
+    a = (max - min) / float(maxsource - minsource)
+    b = max - a * maxsource # max = a * 255 + b
+
+    def scale(value):
+        return a * value + b
+
+    for event in events:
+        if event:
+            yield scale(event.value)
+        else:
+            yield None
