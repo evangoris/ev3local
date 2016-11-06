@@ -15,6 +15,9 @@ def main():
     tachomotorA.run_direct()
     tachomotorB.run_direct()
 
+    from ev3local.generator import generator
+    tmA_gendutycyclesp = generator(tachomotorA.dutycyclegenerator())
+
     try:
         devicepath = pscontroller()
         print "Controller found. Input loop started."
@@ -35,13 +38,14 @@ def main():
         import itertools
         for value1, value2 in itertools.izip(values1, values2):
             if value1:
-                tachomotorA.Duty_Cycle_SP = int(value1)
+                tmA_gendutycyclesp.send(int(value1))
             if value2:
                 tachomotorB.Duty_Cycle_SP = int(value2)
             import time
             time.sleep(1.0/60.0)
 
     finally:
+        tmA_gendutycyclesp.close()
         tachomotorA.reset()
         tachomotorB.reset()
 

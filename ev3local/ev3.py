@@ -3,8 +3,8 @@
 Evan Goris
 2015
 """
+from ev3local.generator import filegenerator
 from ev3local.iattribute import AttributeIteratorMixin
-from ev3local.pid import PController
 
 
 class Device(AttributeIteratorMixin):
@@ -328,6 +328,7 @@ def lstachomotors():
     """
     return _lsdevices("/sys/class/tacho-motor")
 
+
 class TachoMotor(Device):
     """Represents a motor connected to a port
     
@@ -452,6 +453,10 @@ class TachoMotor(Device):
             polarity (str): Either 'normal' or 'reversed'
         """
         self._read_file('encoder_polarity')
+
+    def dutycyclegenerator(self):
+        import os.path
+        return filegenerator(os.path.join(self._devicefolder, 'duty_cycle_sp'))
 
     Encoder_Polarity = property(_get_encoder_polarity, _set_encoder_polarity)
 
