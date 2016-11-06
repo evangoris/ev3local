@@ -6,6 +6,10 @@ import evdev
 import evdev.ecodes
 import cmd
 
+def main():
+    app = EvdevInspect()
+    app.cmdloop() #"Evdev Device Inspector")
+
 class EvdevInspect(cmd.Cmd, object):
 
     def __init__(self, *args):
@@ -203,9 +207,7 @@ def _detect_btn(device):
 
 
 
-def main():
-    app = EvdevInspect()
-    app.cmdloop() #"Evdev Device Inspector")
+
 
 if __name__=='__main__':
     main()
