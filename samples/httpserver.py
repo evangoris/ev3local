@@ -14,7 +14,7 @@ Evan Goris, 2016
 """
 def main():
     from ev3local.httpserver import Server, RequestHandler
-    import argparse, ev3local.ev3 as ev3, ev3local.evdev
+    import argparse, ev3local.ev3 as ev3, ev3local.edutil
 
     ports = ['outA', 'outB', 'outC', 'outD', 'in1', 'in2', 'in3', 'in4']
     constructors = {
@@ -37,8 +37,8 @@ def main():
 
     xcevents = None
     if args.xbox:
-        import ev3local.evdev
-        xcevents = ev3local.evdev.EventLoop()
+        import ev3local.edutil
+        xcevents = ev3local.edutil.EventLoop()
         xcevents.__enter__()
 
     try:
@@ -54,4 +54,4 @@ if __name__=='__main__':
     try:
         main()
     except KeyboardInterrupt:
-        pass
+        p
