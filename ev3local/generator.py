@@ -3,8 +3,8 @@
 #
 
 def coroutine(f):
-    def g(self):
-        i = f(self)
+    def g(*self):
+        i = f(*self)
         i.next()
         return i
     return g
