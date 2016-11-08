@@ -3,7 +3,7 @@ import ev3local.pid
 
 import logging
 
-from ev3local.xbox import XBoxStateController
+from ev3local.evdev import XBoxStateController
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,8 +19,8 @@ def irun(steerport='A', driveport='B', maxcontrol=100.0, fadezone=60.0, loopfreq
 
 
 def run(drivemotor, steermotor, maxcontrol, fadezone, loopfreq):
-    import ev3local.xbox as xbox
-    with xbox.XCEvents() as xcevents:
+    import ev3local.evdev as xbox
+    with xbox.EventLoop() as xcevents:
 
         # Start reading xbox events
         #
@@ -31,7 +31,7 @@ def run(drivemotor, steermotor, maxcontrol, fadezone, loopfreq):
         drivemotor.run_direct()
         def f(value):
             drivemotor.Duty_Cycle_SP = int(value)
-        xcevents.connectaxes(f, 'ABS_X', 100, -100)
+        xcevents.connectaxes(f, 49, -100, 0)
 
 
         # Use a PID to control the position of the steer motor and
@@ -54,7 +54,7 @@ def run(drivemotor, steermotor, maxcontrol, fadezone, loopfreq):
             # Connect the streams
             #
         import itertools
-        isetp = itertools.imap(lambda x: 360*x, xcevents.iattribute('EV_ABS', 'ABS_RX'))
+        isetp = itertools.imap(lambda x: 540*x, xcevents.iattribute('EV_ABS', 2))
         impos = steermotor.iattribute('Position')
         icont = pid.iprocess(isetp, impos)
         steermotor_dutycycle = steermotor.sattribute(itertools.imap(int, icont), 'Duty_Cycle_SP')

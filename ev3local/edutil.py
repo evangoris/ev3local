@@ -40,7 +40,7 @@ def absinfo(device, code):
         if info[0]==typecode:
             return info[1]
 
-class XCEvents(object):
+class EventLoop(object):
     """Manages a sequence of events from an Xbox controller
 
     Objects of this class poll for events from /dev/input
@@ -54,11 +54,11 @@ class XCEvents(object):
         Resource management: Thread that polls the controller
         
     """
-    def __init__(self, callbacks=None):
+    def __init__(self, device=None, callbacks=None):
 
         # The xbox device
         #
-        self._xbox = self._finddevice()
+        self._device = device or self._finddevice()
 
         # List of callbacks that will be called
         # when xbox events occur
@@ -128,7 +128,7 @@ class XCEvents(object):
             AbsInfo: Named tuple with info on `type_`
         """
         import evdev.ecodes
-        cap = self._xbox.capabilities(absinfo=True, verbose=False)
+        cap = self._device.capabilities(absinfo=True, verbose=False)
         if type(type_)==str:
             typecode = evdev.ecodes.ecodes[type_]
         else:
@@ -139,10 +139,10 @@ class XCEvents(object):
                 return info[1]
             
     def eventtypes(self):
-        return self._xbox.capabilities.keys()
+        return self._device.capabilities.keys()
 
     def eventcodes(self, type_):
-        return self._xbox.capabilities[type_]
+        return self._device.capabilities[type_]
 
     def iattribute(self, type_, code):
         """Return an iterator that gives the values of
@@ -202,6 +202,7 @@ class XCEvents(object):
         finally:
             del self._monitor[(type_, code)]
 
+    # TODO: Deprecation
     def _finddevice(self):
         """Search for the device that represents the xbox controller
         
@@ -255,7 +256,7 @@ class XCEvents(object):
         if not self.__signalwfd:
 
             if self._t:
-                raise RuntimeWarning("XCEvents inproperty shut down")
+                raise RuntimeWarning("EventLoop inproperty shut down")
 
             # Stopped already
             #
@@ -304,22 +305,22 @@ class XCEvents(object):
         """
         from select import select
         while True:
-            r, w, x = select([self._xbox.fd,self.__signalrfd], [],[])
+            r, w, x = select([self._device.fd, self.__signalrfd], [], [])
             if self.__signalrfd in r:
                 break
             else:
-                for event in self._xbox.read():
+                for event in self._device.read():
                     yield event
 
 
 class XBoxStateController(object):
     """Record the state of an absolute axis of an XBox controller
 
-    Event handler for xbox.XCEvents() that records the value of
+    Event handler for xbox.EventLoop() that records the value of
     an absolute axis.
 
     Args:
-        xcevents (xbox.XCEvents): Event sequence
+        xcevents (xbox.EventLoop): Event sequence
         event (string or int): Name or code of an absolute axis
     """
     def __init__(self, xcevents, event='ABS_RX'):
@@ -377,7 +378,7 @@ class XBoxStateController(object):
     Driver_Name = property(_get_driver_name)
 
     def _callback(self, event):
-        """Callback for XCEvents()
+        """Callback for EventLoop()
 
         Args:
             event (InputEvent): Event from a controller
@@ -436,6 +437,29 @@ def gen_events(device, code):
                 yield relevantevent
     finally:
         pollobject.unregister(inputdevice.fd)
+
+
+def grepdevice(pattern):
+    """Instantiate an InputDevice object based on a regular expression
+    matched on device name
+
+    Args:
+        pattern (str): Regular expression
+
+    Returns:
+        evdev.InputDevice: Device with a name that matches `pattern`
+
+    Raises:
+        IOError: When no device with appropriate name can be found
+    """
+    import re
+    regex = re.compile(pattern)
+    devices = [ (fn, InputDevice(fn)) for fn in list_devices() ]
+    for path, dev in devices:
+        if regex.match(dev.name):
+            return path, dev
+
+    raise IOError("No device found")
 
 
 def gen_scaledvalue(events, minsource, maxsource, min, max):

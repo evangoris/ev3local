@@ -22,7 +22,7 @@ class DutyCycleController(object):
         * optional non linear mapping
     
     Args:
-        xcevents (XCEvents): object that delivers a sequence of Xbox controller events
+        xcevents (EventLoop): object that delivers a sequence of Xbox controller events
         motor (TachoMotor): object representing a motor
         port (str): port on which to search for a motor
         event (str or int): Name or code of an absolute axis
@@ -104,7 +104,7 @@ class RelPosController(object):
     """Uses key events from an xbox controller to position the motor in discrete steps.
     
     Args:
-        xcevents (xbox.XCEvents): Stream of xbox events
+        xcevents (xbox.EventLoop): Stream of xbox events
         motor (ev3.TachoMotor): Motor to control
         left (str or int): Code or name of the button to make the motor turn left
         right (str or int): Code or name of the button to make the motor turn right

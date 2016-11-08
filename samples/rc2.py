@@ -92,10 +92,10 @@ def steercontrolcallback(steercontrolloop):
     return f
 
 def main():
-    import ev3local.xbox as xbox
+    import ev3local.evdev as xbox
     import ev3local.pid
 
-    inputeventloop = xbox.XCEvents()
+    inputeventloop = xbox.EventLoop()
 
     steercontrolloop = SteerControlLoop(30, 'outB')
     drivecontrolloop = DriveControlLoop(30, 'outA')

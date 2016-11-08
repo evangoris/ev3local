@@ -14,7 +14,7 @@ Evan Goris, 2016
 """
 def main():
     from ev3local.httpserver import Server, RequestHandler
-    import argparse, ev3local.ev3 as ev3, ev3local.xbox
+    import argparse, ev3local.ev3 as ev3, ev3local.evdev
 
     ports = ['outA', 'outB', 'outC', 'outD', 'in1', 'in2', 'in3', 'in4']
     constructors = {
@@ -37,8 +37,8 @@ def main():
 
     xcevents = None
     if args.xbox:
-        import ev3local.xbox
-        xcevents = ev3local.xbox.XCEvents()
+        import ev3local.evdev
+        xcevents = ev3local.evdev.EventLoop()
         xcevents.__enter__()
 
     try:

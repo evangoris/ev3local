@@ -13,7 +13,7 @@ A client can then request the state of these devides with queries like
 Evan Goris, 2016
 """
 import BaseHTTPServer
-import ev3local.xbox
+import ev3local.evdev
 
 class RequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     """Handles requests for the state of sensors and servos
@@ -92,7 +92,7 @@ class Server(BaseHTTPServer.HTTPServer):
 
         if self._xcevents:
             import ev3local.callback
-            xcontroller = ev3local.xbox.XBoxStateController(xcevents)
+            xcontroller = ev3local.evdev.XBoxStateController(xcevents)
             self._devices['xbox'] = xcontroller
 
         import time
