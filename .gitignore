@@ -4,3 +4,6 @@ ev3local/navmodel/
 *.pyc
 ev3local/monitoring.py
 ev3local/xboxmultitest.py
+build/
+ev3local.egg-info/
+dist/
