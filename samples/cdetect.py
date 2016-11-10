@@ -1,3 +1,4 @@
+#!/usr/bin/python
 """Application for detecting axes and buttons of a controller
 
     Evan Goris, 2016
@@ -178,8 +179,8 @@ def _detect_abs(device):
             if states[event.code]==2:
                 # We are in 'done' state, return axes information
                 #
-                import evdev.util
-                result = evdev.util.resolve_ecodes({event.type: [event.code]}).next()[1][0]
+                import edutil.util
+                result = edutil.util.resolve_ecodes({event.type: [event.code]}).next()[1][0]
                 return result
 
 
@@ -201,8 +202,8 @@ def _detect_btn(device):
             scores[event.code] = scores[event.code] +1
             best = max(scores.iteritems(), key=lambda x:x[1])
             if best[1]>=2:
-                import evdev.util
-                result = evdev.util.resolve_ecodes({event.type: [best[0]]}).next()[1][0]
+                import edutil.util
+                result = edutil.util.resolve_ecodes({event.type: [best[0]]}).next()[1][0]
                 return result
 
 
@@ -211,5 +212,3 @@ def _detect_btn(device):
 
 if __name__=='__main__':
     main()
-
-
