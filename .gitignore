@@ -7,3 +7,4 @@ ev3local/xboxmultitest.py
 build/
 ev3local.egg-info/
 dist/
+*.prof

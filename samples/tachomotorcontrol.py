@@ -1,23 +1,18 @@
 #!/usr/bin/python
 
-import sys
+import sys, itertools, time
 sys.path.append('/home/robot/src/ev3local')
-
 
 from ev3local.edutil import gen_events, gen_scaledvalue
 
-
-from ev3local.ev3 import TachoMotor
-
-
 def main():
-    tachomotorA = TachoMotor('outA')
-    tachomotorB = TachoMotor('outB')
-    tachomotorA.run_direct()
-    tachomotorB.run_direct()
 
-    from ev3local.generator import generator
-    tmA_gendutycyclesp = generator(tachomotorA.dutycyclegenerator())
+    from ev3local.pyev3 import DutyCycle
+    dutycycleA = DutyCycle('outA')
+    dutycycleAcr = dutycycleA.setdutycyclesp()
+
+    dutycycleB = DutyCycle('outB')
+    dutycycleBcr = dutycycleB.setdutycyclesp()
 
     try:
         from ev3local.edutil import grepdevice
@@ -29,48 +24,47 @@ def main():
 
         import ev3local.edutil
         absinfo1 = ev3local.edutil.absinfo(device, 1)
-        events1 = gen_events(devicepath, 1)
-        values1 = gen_scaledvalue(events1, absinfo1.min, absinfo1.max, -50, 50)
-
         absinfo2 = ev3local.edutil.absinfo(device, 5)
-        events2 = gen_events(devicepath, 5)
-        values2 = gen_scaledvalue(events2, absinfo2.min, absinfo2.max, -50, 50)
-        values2 = (-1*v if v else None for v in values2)
 
-        import itertools
-        for value1, value2 in itertools.izip(values1, values2):
+        events = gen_events(devicepath, (1, 5))
+        values1 = gen_scaledvalue(events, absinfo1.min, absinfo1.max, -75, 75, index=1)
+        values2 = gen_scaledvalue(values1, absinfo2.min, absinfo2.max, 75, -75, index=5)
+
+        looptimer = LoopTimer()
+        looptimer.init()
+        for values in values2:
+            value1 = values[1]
+            value2 = values[5]
             if value1:
-                tmA_gendutycyclesp.send(int(value1))
+                dutycycleAcr.send(int(value1))
             if value2:
-                tachomotorB.Duty_Cycle_SP = int(value2)
-            import time
-            time.sleep(1.0/60.0)
+                dutycycleBcr.send(int(value2))
+            looptimer.sleep()
 
     finally:
-        tmA_gendutycyclesp.close()
-        tachomotorA.reset()
-        tachomotorB.reset()
+        dutycycleAcr.close()
+        dutycycleBcr.close()
 
 
-# TODO: Factor out pattern to search for and also return the device object
-#
-'''
-def pscontroller():
-    """Find path to uinput device corresponding to a playstation controller
+class LoopTimer(object):
 
-    Returns:
-        str: Path to device
+    def __init__(self, looptime=1/30.0):
+        self.looptime = looptime
+        self._time = time.time
+        self._sleep = time.sleep
 
-    Raises:
-        RuntimeError: When no playstation controller can be found
-    """
-    from evdev import InputDevice, list_devices
-    devices = [ (d, InputDevice(d)) for d in list_devices()]
-    for path, device in devices:
-        if 'PLAYSTATION' in device.name:
-            return path
-    raise RuntimeError("No playstation controller found")
-'''
+    def init(self):
+        self.t0 = self._time()
+
+    def sleep(self):
+        dt = self._time() - self.t0
+        timetosleep = self.looptime - dt
+        if timetosleep<0:
+            print "Oops", timetosleep, dt
+        else:
+            self._sleep(timetosleep)
+        self.t0 = self._time()
+
 
 
 if __name__=='__main__':

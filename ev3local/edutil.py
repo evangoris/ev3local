@@ -1,7 +1,7 @@
-"""Interface to events form an Xbox controller
+"""Interface to events form a evdev devices
 
 ISSUES:
-1) When the controller disconnects (or some other internal exception happens) and then reconnects the XCEvents object is still dead
+1) When the controller disconnects (or some other internal exception happens) and then reconnects the EventLoop object is still dead
 
 Evan Goris
 2015
@@ -396,20 +396,18 @@ class XBoxStateController(object):
         return ['pvalue']
 
 
-# TODO: Accept multiple codes
-#
-def gen_events(device, code):
+def gen_events(device, codes):
     """Generate EVT_ABS events from a device
 
     The next() method of the generator returned will return the most
     recent event since the last call to next().
 
     Args:
-        device (str): Path to device
-        code (int): Code of events to generate
+        device (str or evdev.InputDevice): InputDevice or path to device
+        codes (tuple of int): Codes of events to generate
 
     Yields:
-        evdev.InputEvent: Most recent event with code `code`
+        tuple of evdev.InputEvent: Most recent events with code in `codes`
     """
     from evdev import InputDevice
 
@@ -423,18 +421,27 @@ def gen_events(device, code):
     import select
     pollobject = select.poll()
     pollobject.register(inputdevice.fd, select.POLLIN | select.POLLPRI)
+
+    import evdev.ecodes
+    abscode = evdev.ecodes.ecodes['EV_ABS']
+
+    maxcode = max(codes)
+    resultevents = [None for _ in range(maxcode +1)]
+    nones = [None for _ in range(maxcode +1)]
+
     try:
         while True:
             events = pollobject.poll(0)
             if not events:
-                yield None
+                yield nones
             else:
-                relevantevent = None
+                for i in codes:
+                    resultevents[i] = None
                 for event in inputdevice.read():
-                    import evdev.ecodes
-                    if event.type==evdev.ecodes.ecodes['EV_ABS'] and event.code==code:
-                        relevantevent = event
-                yield relevantevent
+                    if event.type==abscode and event.code<=maxcode:
+                        resultevents[event.code] = event
+                yield resultevents
+
     finally:
         pollobject.unregister(inputdevice.fd)
 
@@ -462,7 +469,8 @@ def grepdevice(pattern):
     raise IOError("No device found")
 
 
-def gen_scaledvalue(events, minsource, maxsource, min, max):
+
+def gen_scaledvalue(events, minsource, maxsource, min, max, index=None):
     """Generate scaled values from a sequence of events
 
     Arguments:
@@ -478,11 +486,11 @@ def gen_scaledvalue(events, minsource, maxsource, min, max):
     a = (max - min) / float(maxsource - minsource)
     b = max - a * maxsource # max = a * 255 + b
 
-    def scale(value):
-        return a * value + b
-
     for event in events:
-        if event:
-            yield scale(event.value)
-        else:
-            yield None
+        if event[index]:
+            event[index] = a * event[index].value + b
+        yield event
+
+"""
+EOF
+"""

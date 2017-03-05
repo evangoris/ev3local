@@ -45,8 +45,9 @@ def main():
     run(args.address, args.port, args.ncon, args.frequency)
 
 def run(address, port, ncon, frequency, motor=None):
-    portmap = (motor and {motor.Address: motor}) or {}
-    action = server(portmap, address, port, ncon, frequency)
+    import ev3local.pyev3
+    propertymap = {"DUTY_CYCLE": ev3local.pyev3.DutyCycle}
+    action = server(propertymap, address, port, ncon, frequency)
     action()
 
 if __name__=='__main__':

@@ -14,6 +14,10 @@ Implementation
     every 1/Fth second a value is red from a device and then
     synchronously send to the client.
 
+    The values that are send over the stream are determined as follows.
+    The `propertymap` is a mapping from PROPERTY to a callable.
+    This callable is applied to PORT and should return an iterator.
+    The values given by this iterator are send.
 
 TODO:
     Error handling
@@ -23,7 +27,7 @@ Evan Goris, 2016
 """
 import logging
 
-def server(portmap, hostname='0.0.0.0', port=5000, ncon=5, frequency=30):
+def server(propertymap, hostname='0.0.0.0', port=5000, ncon=5, frequency=30):
     """Construct a function that starts a stream server
 
     Args:
@@ -78,8 +82,8 @@ def server(portmap, hostname='0.0.0.0', port=5000, ncon=5, frequency=30):
                 try:
                     request = readrequest(clientsocket)
                     logging.info("Received [" + request + "]")
-                    attriter, property = processrequest(portmap, request)
-                    sendstream(frequency, timer, clientsocket, attriter, property)
+                    iterator, property = processrequest(propertymap, request)
+                    sendstream(frequency, timer, clientsocket, iterator, property)
                 except RuntimeError as e:
                     print str(e)
         finally:
@@ -109,28 +113,24 @@ class ServerProcess(object):
         os.write(self._signalwfd, "STOP")
 
 
-def processrequest(portmap, request):
+def processrequest(propertymap, request):
     """Process a request for a stream from a client
 
     Args:
         request (str): Request to process
 
     Returns:
-        tuple: The device and the property that the client request
-            to be streamed
+        tuple: Iterator to be streamed and property name
     """
     import ev3local.ev3 as ev3
 
     port, property = parserequest(request)
     logging.info("Parsed [" + port + "] [" + property + "]")
 
-    try:
-        deviceobject = portmap[port]
-    except KeyError:
-        deviceclass = ev3.mapport(port)
-        deviceobject = deviceclass(port)
+    iteratorconstructor = propertymap[property]
+    iterator = iteratorconstructor(port)
 
-    return (deviceobject, property)
+    return (iterator, property)
 
 def readrequest(sckt):
     """Read a complete request from a cocket.
@@ -150,7 +150,7 @@ def readrequest(sckt):
         request = request + chunk
     return request
 
-def sendstream(frequency, timer, sckt, attriter, property):
+def sendstream(frequency, timer, sckt, iterator, property):
     """Send a stream of timestamps and propertyvalues over a socket
 
         The stream is send asynchrone. The stream ends if the client
@@ -168,12 +168,13 @@ def sendstream(frequency, timer, sckt, attriter, property):
     def h():
         tname = threading.current_thread().name
         try:
-            logging.info("Start stream [" + tname + "][" + attriter.Driver_Name + " (" + attriter.Address + ")] [" + property + "]")
-            for value in attriter.iattribute(property):
+            logging.info("Start stream [" + tname + "][" + "attriter.Driver_Name" + " (" + "attriter.Address" + ")] [" + property + "]")
+            for value in iterator:
                 sendmessage(sckt, str(timer()) + ',' + str(value) + ';')
         except socket.error as e:
-            logging.info("End stream [" + tname + "][" + attriter.Driver_Name + "] [" + property + "]")
+            pass # Socket closed on other end, just exit
         finally:
+            logging.info("End stream [" + tname + "][" + "attriter.Driver_Name" + "] [" + property + "]")
             sckt.close()
 
     thread = threading.Thread(target=h)
