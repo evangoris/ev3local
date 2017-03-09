@@ -13,9 +13,8 @@ def main():
 
     from ev3local.edutil import InputDevice
     device = InputDevice(devicepath)
-    codes = (0, 1, 5)
-    events = gen_events(devicepath, codes)
 
+    codes = (0, 1, 5)
     codes_ports = zip(codes, ['outA', 'outB', 'outC'])
     branches = [ (code, try_createbranch(bounds(device, code), port)) for code, port in codes_ports]
     active_branches = [ (code, branch) for code, branch in branches if branch]
@@ -23,13 +22,15 @@ def main():
     from ev3local.generator import split
     root = split(*unzip(active_branches))
 
-    looptimer = LoopTimer()
-    looptimer.init()
-    for values in events:
-        root.send(values)
-        looptimer.sleep()
-
-    root.close()
+    try:
+        events = gen_events(devicepath, codes)
+        looptimer = LoopTimer()
+        looptimer.init()
+        for values in events:
+            root.send(values)
+            looptimer.sleep()
+    finally:
+        root.close()
 
 
 def try_createbranch(inbounds, port):
@@ -63,11 +64,6 @@ def bounds(device, code):
     import ev3local.edutil
     absinfo = ev3local.edutil.absinfo(device, code)
     return (absinfo.min, absinfo.max)
-
-
-def cr_scale(device, eventcode, outbounds):
-    from ev3local.generator import scale
-    return scale(bounds(device, eventcode), outbounds)
 
 
 class LoopTimer(object):
