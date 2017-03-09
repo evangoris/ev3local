@@ -27,6 +27,7 @@ class filegenerator(object):
                 f.write(str(value))
                 f.flush()
 
+
 def generator(obj):
     return obj.__generator__()
 
@@ -59,3 +60,56 @@ def branch(g1, g2):
         v1, v2 = yield
         g1.send(v1)
         g2.send(v2)
+
+
+def scale(inbounds, outbounds):
+    minsource, maxsource = inbounds
+    min, max = outbounds
+
+    a = (max - min) / float(maxsource - minsource)
+    b = max - a * maxsource # max = a * 255 + b
+
+    @coroutine
+    def g(out):
+        try:
+            while True:
+                value = yield
+                out.send(int(a * value + b))
+        except GeneratorExit:
+            out.close()
+
+    return g
+
+
+@coroutine
+def split(indices, outs):
+    indices_outs = zip(indices, outs)
+
+    try:
+        while True:
+            value = yield
+            for i, out in indices_outs:
+                out.send(value[i])
+    except GeneratorExit:
+        for out in outs:
+            out.close()
+
+
+def sequence(coroutines):
+    """Connect a list of coroutines
+
+    """
+    # TODO: Let all in coroutines be functions
+    # TODO: and the result also a function
+    # TODO: maybe optional 'sink' argument
+
+    if len(coroutines)==0:
+        raise RuntimeError("Invalid argument")
+    elif len(coroutines)==1:
+        return coroutines[0]
+    else:
+        tail = sequence(coroutines[1:])
+        return coroutines[0](tail)
+
+
+

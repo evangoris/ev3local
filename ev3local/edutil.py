@@ -469,6 +469,17 @@ def grepdevice(pattern):
     raise IOError("No device found")
 
 
+from .generator import coroutine
+@coroutine
+def getvalue(out):
+    try:
+        while True:
+            event = yield
+            if event:
+                out.send(event.value)
+    except GeneratorExit:
+        out.close()
+
 
 def gen_scaledvalue(events, minsource, maxsource, min, max, index=None):
     """Generate scaled values from a sequence of events

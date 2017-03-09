@@ -3,47 +3,71 @@
 import sys, itertools, time
 sys.path.append('/home/robot/src/ev3local')
 
-from ev3local.edutil import gen_events, gen_scaledvalue
+from ev3local.edutil import gen_events
 
 def main():
 
-    from ev3local.pyev3 import DutyCycle
-    dutycycleA = DutyCycle('outA')
-    dutycycleAcr = dutycycleA.setdutycyclesp()
+    from ev3local.edutil import grepdevice
+    devicepath, _ = grepdevice("PLAYSTATION")
+    print "Controller found. Input loop started."
 
-    dutycycleB = DutyCycle('outB')
-    dutycycleBcr = dutycycleB.setdutycyclesp()
+    from ev3local.edutil import InputDevice
+    device = InputDevice(devicepath)
+    events = gen_events(devicepath, (0, 1, 5))
 
+    from ev3local.generator import split
+
+    global bounds
+    codes_ports = [(0, 'outA'), (1, 'outB'), (5, 'outC')]
+    branches = [ (code, try_createbranch(bounds(device, code), port)) for code, port in codes_ports]
+    active_branches = [ (code, branch) for code, branch in branches if branch]
+    root = split(*unzip(active_branches))
+
+    looptimer = LoopTimer()
+    looptimer.init()
+    for values in events:
+        root.send(values)
+        looptimer.sleep()
+
+    root.close()
+
+
+def try_createbranch(inbounds, port):
+    from ev3local.generator import scale, sequence
+    from ev3local.edutil import getvalue
     try:
-        from ev3local.edutil import grepdevice
-        devicepath, _ = grepdevice("PLAYSTATION")
-        print "Controller found. Input loop started."
+        return sequence([getvalue, scale(inbounds, (75, -75)), cr_dutycycle(port)])
+    except IOError:
+        # Nothing attached to `port`
+        return None
 
-        from ev3local.edutil import InputDevice
-        device = InputDevice(devicepath)
 
-        import ev3local.edutil
-        absinfo1 = ev3local.edutil.absinfo(device, 1)
-        absinfo2 = ev3local.edutil.absinfo(device, 5)
+def unzip(pairs):
+    return [x[0] for x in pairs], [x[1] for x in pairs]
 
-        events = gen_events(devicepath, (1, 5))
-        values1 = gen_scaledvalue(events, absinfo1.min, absinfo1.max, -75, 75, index=1)
-        values2 = gen_scaledvalue(values1, absinfo2.min, absinfo2.max, 75, -75, index=5)
 
-        looptimer = LoopTimer()
-        looptimer.init()
-        for values in values2:
-            value1 = values[1]
-            value2 = values[5]
-            if value1:
-                dutycycleAcr.send(int(value1))
-            if value2:
-                dutycycleBcr.send(int(value2))
-            looptimer.sleep()
+def gn_deviceevent(devicepath):
+    from ev3local.edutil import InputDevice
+    device = InputDevice(devicepath)
+    events = gen_events(devicepath, (0, 1, 5))
+    return device, events
 
-    finally:
-        dutycycleAcr.close()
-        dutycycleBcr.close()
+
+def cr_dutycycle(port):
+    from ev3local.pyev3 import DutyCycle
+    dutycycle = DutyCycle(port)
+    return dutycycle.setdutycyclesp()
+
+
+def bounds(device, code):
+    import ev3local.edutil
+    absinfo = ev3local.edutil.absinfo(device, code)
+    return (absinfo.min, absinfo.max)
+
+
+def cr_scale(device, eventcode, outbounds):
+    from ev3local.generator import scale
+    return scale(bounds(device, eventcode), outbounds)
 
 
 class LoopTimer(object):

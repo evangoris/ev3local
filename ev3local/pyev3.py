@@ -168,6 +168,7 @@ class DutyCycle(object):
     """
     def __init__(self, port):
         port = _normalizeport(port)
+        self._port = port
         self._devicefolder = _finddevicefolder('/sys/class/tacho-motor', port)
 
         import os.path
@@ -180,11 +181,13 @@ class DutyCycle(object):
     def setdutycyclesp(self):
         import os.path
         with open(os.path.join(self._devicefolder, 'duty_cycle_sp'), 'w') as f:
-            while True:
-                value = yield
-                f.write(str(value))
-                f.flush()
-
+            try:
+                while True:
+                    value = yield
+                    f.write(str(value))
+                    f.flush()
+            except GeneratorExit:
+                pass
 
     def __iter__(self):
         return self.getdutycycle()
