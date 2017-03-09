@@ -13,14 +13,14 @@ def main():
 
     from ev3local.edutil import InputDevice
     device = InputDevice(devicepath)
-    events = gen_events(devicepath, (0, 1, 5))
+    codes = (0, 1, 5)
+    events = gen_events(devicepath, codes)
 
-    from ev3local.generator import split
-
-    global bounds
-    codes_ports = [(0, 'outA'), (1, 'outB'), (5, 'outC')]
+    codes_ports = zip(codes, ['outA', 'outB', 'outC'])
     branches = [ (code, try_createbranch(bounds(device, code), port)) for code, port in codes_ports]
     active_branches = [ (code, branch) for code, branch in branches if branch]
+
+    from ev3local.generator import split
     root = split(*unzip(active_branches))
 
     looptimer = LoopTimer()
